@@ -1,11 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
+// Define the Next.js 15 context type where params is a Promise
+type RouteContext = {
+  params: Promise<{ platform: string }>;
+};
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: { platform: string } },
+  context: RouteContext, // Replaced destructured params with typed context
 ) {
-  const platform = params.platform;
+  // Await the params before extracting properties
+  const { platform } = await context.params;
 
   // Telegram uses a different flow (no OAuth callback)
   if (platform === "telegram") {

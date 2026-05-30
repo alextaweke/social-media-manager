@@ -38,12 +38,18 @@ const oauthPlatforms = {
   },
 };
 
+// Define the Next.js 15 context type where params is a Promise
+type RouteContext = {
+  params: Promise<{ platform: string }>;
+};
+
 // For Telegram, we need a different endpoint
 export async function POST(
   request: NextRequest,
-  { params }: { params: { platform: string } },
+  context: RouteContext, // Replaced destructured params with context
 ) {
-  const platform = params.platform;
+  // Await the params before extracting properties
+  const { platform } = await context.params;
 
   if (platform === "telegram") {
     return await handleTelegramConnection(request);
@@ -130,7 +136,11 @@ async function handleTelegramConnection(request: NextRequest) {
 }
 
 async function handleOAuthConnection(platform: string) {
-  // Your existing OAuth logic here
+  // Check if platform is a valid key to prevent runtime errors
+  if (!(platform in oauthPlatforms)) {
+    return NextResponse.json({ error: "Invalid platform" }, { status: 400 });
+  }
+
   const config = oauthPlatforms[platform as keyof typeof oauthPlatforms];
   // ... rest of your OAuth code
 }

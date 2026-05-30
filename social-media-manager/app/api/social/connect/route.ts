@@ -2,17 +2,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { platform: string } },
-) {
-  const platform = params.platform;
-
-  if (platform === "telegram") {
-    return await handleTelegramConnection(request);
-  }
-
-  return NextResponse.json({ error: "Invalid platform" }, { status: 400 });
+// Removed RouteContext type and context parameter entirely
+export async function POST(request: NextRequest) {
+  // Since this route is statically located at /api/social/connect,
+  // we assume it is dedicated to handling the Telegram connection.
+  return await handleTelegramConnection(request);
 }
 
 async function handleTelegramConnection(request: NextRequest) {
