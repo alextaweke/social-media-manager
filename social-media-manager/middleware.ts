@@ -2,42 +2,51 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  let response = NextResponse.next({
+    request,
+  });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
+
+          response = NextResponse.next({
+            request,
+          });
+
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
         },
       },
     },
   );
 
+  // ⚠️ IMPORTANT: only optional session check (safe)
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Redirect to login if accessing protected routes without auth
-  if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
-    const url = new URL("/login", request.url);
-    return NextResponse.redirect(url);
+  const isAuthPage = request.nextUrl.pathname.startsWith("/login");
+
+  // Example protection (adjust as needed)
+  if (!user && !isAuthPage) {
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  return supabaseResponse;
+  return response;
 }
 
+// IMPORTANT: limit middleware scope
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/dashboard/:path*", "/login"],
 };
