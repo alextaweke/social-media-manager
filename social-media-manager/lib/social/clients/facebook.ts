@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export class FacebookClient {
   private accessToken: string;
   private pageId: string;
@@ -14,60 +13,89 @@ export class FacebookClient {
 
   async post(content: string, imageUrl?: string, link?: string) {
     try {
-      const postData: any = {
-        message: content,
-        access_token: this.accessToken,
-      };
+      console.log("Facebook post attempt:", {
+        contentLength: content.length,
+        hasImage: !!imageUrl,
+      });
+
+      // First, verify the token is valid
+      const isValid = await this.verifyToken();
+      if (!isValid) {
+        throw new Error("Facebook access token is invalid or expired");
+      }
+
+      let response;
+      let data;
 
       // If there's an image, post as photo
       if (imageUrl) {
-        const photoResponse = await fetch(
-          `${this.apiUrl}/${this.pageId}/photos`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url: imageUrl,
-              caption: content,
-              access_token: this.accessToken,
-              published: true,
-            }),
+        console.log("Posting photo to Facebook");
+
+        // For photos, we need to use a different endpoint
+        const formData = new URLSearchParams();
+        formData.append("url", imageUrl);
+        formData.append("caption", content);
+        formData.append("access_token", this.accessToken);
+        formData.append("published", "true");
+
+        response = await fetch(`${this.apiUrl}/${this.pageId}/photos`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
           },
-        );
+          body: formData.toString(),
+        });
 
-        const photoData = await photoResponse.json();
+        data = await response.json();
 
-        if (!photoResponse.ok) {
+        if (!response.ok) {
+          console.error("Facebook photo post error:", data);
           throw new Error(
-            photoData.error?.message || "Failed to post photo to Facebook",
+            data.error?.message || "Failed to post photo to Facebook",
           );
         }
 
         return {
-          id: photoData.id,
-          url: `https://facebook.com/${photoData.id}`,
+          id: data.id,
+          url: `https://facebook.com/${data.id}`,
           success: true,
         };
       }
 
-      // If there's a link, post as link
-      if (link) {
-        postData.link = link;
-      }
-
       // Regular text post
-      const response = await fetch(`${this.apiUrl}/${this.pageId}/feed`, {
+      console.log("Posting text to Facebook");
+      const formData = new URLSearchParams();
+      formData.append("message", content);
+      formData.append("access_token", this.accessToken);
+
+      response = await fetch(`${this.apiUrl}/${this.pageId}/feed`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(postData),
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: formData.toString(),
       });
 
-      const data = await response.json();
+      data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error?.message || "Failed to post to Facebook");
+        console.error("Facebook text post error:", data);
+
+        // Check for specific errors
+        if (data.error?.code === 200) {
+          throw new Error(
+            "Permission error: Your access token doesn't have permission to post",
+          );
+        } else if (data.error?.code === 190) {
+          throw new Error(
+            "Access token expired. Please reconnect your Facebook page",
+          );
+        } else {
+          throw new Error(data.error?.message || "Failed to post to Facebook");
+        }
       }
 
+      console.log("Facebook post successful:", data.id);
       return {
         id: data.id,
         url: `https://facebook.com/${data.id}`,
@@ -79,67 +107,30 @@ export class FacebookClient {
     }
   }
 
-  async postWithMultipleImages(content: string, imageUrls: string[]) {
+  async verifyToken(): Promise<boolean> {
     try {
-      // First, upload each image to get their IDs
-      const uploadedIds = [];
-      for (const imageUrl of imageUrls) {
-        const uploadResponse = await fetch(
-          `${this.apiUrl}/${this.pageId}/photos`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url: imageUrl,
-              published: false,
-              access_token: this.accessToken,
-            }),
-          },
-        );
-
-        const uploadData = await uploadResponse.json();
-        if (!uploadResponse.ok) {
-          throw new Error(
-            uploadData.error?.message || "Failed to upload image",
-          );
-        }
-        uploadedIds.push({ media_fbid: uploadData.id });
-      }
-
-      // Create album post with all images
-      const response = await fetch(`${this.apiUrl}/${this.pageId}/feed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: content,
-          attached_media: uploadedIds.map((id) => JSON.stringify(id)),
-          access_token: this.accessToken,
-          published: true,
-        }),
-      });
-
+      const response = await fetch(
+        `${this.apiUrl}/debug_token?input_token=${this.accessToken}&access_token=${this.accessToken}`,
+      );
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error?.message || "Failed to create album post");
+      if (!response.ok || !data.data?.is_valid) {
+        console.error("Token verification failed:", data);
+        return false;
       }
 
-      return {
-        id: data.id,
-        url: `https://facebook.com/${data.id}`,
-        success: true,
-      };
+      console.log("Token verified successfully");
+      return true;
     } catch (error) {
-      console.error("Facebook multi-image posting error:", error);
-      throw error;
+      console.error("Token verification error:", error);
+      return false;
     }
   }
 
   async getPageInfo() {
     try {
-      // Updated fields - removed fan_count which is deprecated
       const response = await fetch(
-        `${this.apiUrl}/${this.pageId}?fields=id,name,username&access_token=${this.accessToken}`,
+        `${this.apiUrl}/${this.pageId}?fields=id,name,username,link&access_token=${this.accessToken}`,
       );
 
       const data = await response.json();
@@ -153,59 +144,10 @@ export class FacebookClient {
         name: data.name,
         username: data.username,
         url: data.link,
-        about: data.about,
-        website: data.website,
       };
     } catch (error) {
       console.error("Facebook get page info error:", error);
       throw error;
-    }
-  }
-
-  async getPageFollowers() {
-    try {
-      // Alternative way to get follower count using page_fans metric
-      const response = await fetch(
-        `${this.apiUrl}/${this.pageId}/insights?metric=page_fans&access_token=${this.accessToken}`,
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Return null instead of throwing error
-        return null;
-      }
-
-      if (data.data && data.data[0] && data.data[0].values) {
-        const latestValue = data.data[0].values[data.data[0].values.length - 1];
-        return {
-          followers: latestValue.value,
-        };
-      }
-
-      return null;
-    } catch (error) {
-      console.error("Facebook get followers error:", error);
-      return null;
-    }
-  }
-
-  async getPostInsights(postId: string) {
-    try {
-      const response = await fetch(
-        `${this.apiUrl}/${postId}/insights?metric=post_impressions,post_engaged_users,post_reactions_like_total&access_token=${this.accessToken}`,
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error?.message || "Failed to get post insights");
-      }
-
-      return data.data;
-    } catch (error) {
-      console.error("Facebook get insights error:", error);
-      return null;
     }
   }
 }

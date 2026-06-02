@@ -149,18 +149,44 @@ export async function POST(request: Request) {
               result = await telegram.sendMessage(content);
             }
             break;
+          // Find the Facebook case in your switch statement and update it:
           case "facebook":
-            const facebook = new FacebookClient(
-              socialAccount.access_token,
+            console.log(
+              "Facebook posting - Page ID:",
               socialAccount.platform_user_id,
             );
-            if (mediaUrls && mediaUrls.length > 1) {
-              result = await facebook.postWithMultipleImages(
-                content,
-                mediaUrls,
+            console.log("Facebook posting - Content length:", content.length);
+            console.log(
+              "Facebook posting - Has media:",
+              !!(mediaUrls && mediaUrls.length > 0),
+            );
+
+            try {
+              const facebook = new FacebookClient(
+                socialAccount.access_token,
+                socialAccount.platform_user_id,
               );
-            } else {
-              result = await facebook.post(content, mediaUrls?.[0]);
+
+              // Test the token first
+              const pageInfo = await facebook.getPageInfo();
+              console.log("Facebook page verified:", pageInfo.name);
+
+              if (mediaUrls && mediaUrls.length > 0) {
+                console.log("Posting with image to Facebook");
+                result = await facebook.post(content, mediaUrls[0]);
+              } else {
+                console.log("Posting text only to Facebook");
+                result = await facebook.post(content);
+              }
+
+              console.log("Facebook post successful:", result);
+            } catch (fbError: any) {
+              console.error("Detailed Facebook error:", {
+                message: fbError.message,
+                stack: fbError.stack,
+                response: fbError.response,
+              });
+              throw new Error(`Facebook error: ${fbError.message}`);
             }
             break;
           default:
