@@ -29,6 +29,7 @@ export default function FacebookConnection({
   const [isConnecting, setIsConnecting] = useState(false);
   const [useEnvCredentials, setUseEnvCredentials] = useState(false);
 
+  // Update the connectFacebook function - modify the success handling
   const connectFacebook = async () => {
     if (!useEnvCredentials && (!pageId || !accessToken)) {
       toast.error("Please enter both Page ID and Access Token");
@@ -59,9 +60,9 @@ export default function FacebookConnection({
       }
 
       if (data.success) {
-        toast.success(
-          `Facebook page "${data.page.name}" connected successfully!`,
-        );
+        // Updated to handle page object safely
+        const pageNameConnected = data.page?.name || "Facebook page";
+        toast.success(`${pageNameConnected} connected successfully!`);
         setPageId("");
         setAccessToken("");
         setPageName("");
