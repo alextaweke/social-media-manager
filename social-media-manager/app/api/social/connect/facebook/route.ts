@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("Facebook connection API called");
+
     const supabase = await createClient();
     const {
       data: { user },
@@ -11,12 +13,33 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
+      console.error("Auth error:", userError);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { pageId, pageName, accessToken } = await request.json();
+    // Parse request body
+    let body;
+    try {
+      body = await request.json();
+      console.log("Received body:", {
+        ...body,
+        accessToken: body.accessToken ? "***hidden***" : undefined,
+      });
+    } catch (parseError) {
+      console.error("Failed to parse body:", parseError);
+      return NextResponse.json(
+        { error: "Invalid request body" },
+        { status: 400 },
+      );
+    }
+
+    const { pageId, pageName, accessToken } = body;
 
     if (!pageId || !accessToken) {
+      console.error("Missing fields:", {
+        hasPageId: !!pageId,
+        hasAccessToken: !!accessToken,
+      });
       return NextResponse.json(
         {
           error: "Page ID and access token are required",
@@ -25,63 +48,83 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify the token and get page info
-    const { FacebookClient } = await import("@/lib/social/clients/facebook");
-    const client = new FacebookClient(accessToken, pageId);
-    const pageInfo = await client.getPageInfo();
+    // First, verify the token works by getting page info with only basic fields
+    try {
+      // Use only fields that are guaranteed to exist
+      const verifyResponse = await fetch(
+        `https://graph.facebook.com/v18.0/${pageId}?fields=id,name,username&access_token=${accessToken}`,
+      );
 
-    // Get follower count separately (optional)
-    const followers = await client.getPageFollowers();
+      const verifyData = await verifyResponse.json();
 
-    // Save to database - remove metadata field if it causes issues
-    const accountData = {
-      user_id: user.id,
-      platform: "facebook",
-      platform_user_id: pageId,
-      platform_username: pageInfo.username || pageName || pageInfo.name,
-      access_token: accessToken,
-      refresh_token: null,
-      expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    };
+      if (!verifyResponse.ok) {
+        console.error("Token verification failed:", verifyData);
+        throw new Error(
+          verifyData.error?.message || "Invalid access token or page ID",
+        );
+      }
 
-    // Check if account already exists
-    const { data: existingAccount } = await supabase
-      .from("social_accounts")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("platform", "facebook")
-      .single();
+      console.log("Token verified successfully for page:", verifyData.name);
 
-    let result;
-    if (existingAccount) {
-      result = await supabase
+      // Save to database (without problematic metadata)
+      const accountData = {
+        user_id: user.id,
+        platform: "facebook",
+        platform_user_id: pageId,
+        platform_username: verifyData.username || pageName || verifyData.name,
+        access_token: accessToken,
+        refresh_token: null,
+        expires_at: new Date(
+          Date.now() + 60 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Check if account already exists
+      const { data: existingAccount } = await supabase
         .from("social_accounts")
-        .update(accountData)
-        .eq("id", existingAccount.id);
-    } else {
-      result = await supabase.from("social_accounts").insert([accountData]);
-    }
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("platform", "facebook")
+        .single();
 
-    if (result.error) {
-      console.error("Database error:", result.error);
+      let result;
+      if (existingAccount) {
+        result = await supabase
+          .from("social_accounts")
+          .update(accountData)
+          .eq("id", existingAccount.id);
+      } else {
+        result = await supabase.from("social_accounts").insert([accountData]);
+      }
+
+      if (result.error) {
+        console.error("Database error:", result.error);
+        return NextResponse.json(
+          { error: result.error.message },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Facebook page connected successfully",
+        page: {
+          id: verifyData.id,
+          name: verifyData.name,
+          username: verifyData.username,
+        },
+      });
+    } catch (apiError: any) {
+      console.error("Facebook API error:", apiError);
       return NextResponse.json(
-        { error: result.error.message },
-        { status: 500 },
+        {
+          error: apiError.message || "Failed to verify Facebook page",
+        },
+        { status: 400 },
       );
     }
-
-    return NextResponse.json({
-      success: true,
-      message: "Facebook page connected successfully",
-      page: {
-        name: pageInfo.name,
-        username: pageInfo.username,
-        url: pageInfo.url,
-        followers: followers?.followers || null,
-      },
-    });
   } catch (error: any) {
     console.error("Facebook connection error:", error);
     return NextResponse.json(

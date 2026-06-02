@@ -139,7 +139,7 @@ export class FacebookClient {
     try {
       // Updated fields - removed fan_count which is deprecated
       const response = await fetch(
-        `${this.apiUrl}/${this.pageId}?fields=id,name,username,link,about,website,phone,emails&access_token=${this.accessToken}`,
+        `${this.apiUrl}/${this.pageId}?fields=id,name,username&access_token=${this.accessToken}`,
       );
 
       const data = await response.json();
