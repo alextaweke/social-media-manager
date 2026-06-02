@@ -11,18 +11,14 @@ export class FacebookClient {
     this.pageId = pageId;
   }
 
-  async post(content: string, imageUrl?: string, link?: string) {
+  async post(content: string, imageUrl?: string) {
     try {
       console.log("Facebook post attempt:", {
+        pageId: this.pageId,
         contentLength: content.length,
         hasImage: !!imageUrl,
+        tokenPrefix: this.accessToken.substring(0, 20) + "...",
       });
-
-      // First, verify the token is valid
-      const isValid = await this.verifyToken();
-      if (!isValid) {
-        throw new Error("Facebook access token is invalid or expired");
-      }
 
       let response;
       let data;
@@ -31,7 +27,6 @@ export class FacebookClient {
       if (imageUrl) {
         console.log("Posting photo to Facebook");
 
-        // For photos, we need to use a different endpoint
         const formData = new URLSearchParams();
         formData.append("url", imageUrl);
         formData.append("caption", content);
@@ -81,14 +76,18 @@ export class FacebookClient {
       if (!response.ok) {
         console.error("Facebook text post error:", data);
 
-        // Check for specific errors
-        if (data.error?.code === 200) {
-          throw new Error(
-            "Permission error: Your access token doesn't have permission to post",
-          );
-        } else if (data.error?.code === 190) {
+        // Provide specific error messages
+        if (data.error?.code === 190) {
           throw new Error(
             "Access token expired. Please reconnect your Facebook page",
+          );
+        } else if (data.error?.code === 200) {
+          throw new Error(
+            "Permission error. Make sure your token has 'pages_manage_posts' permission",
+          );
+        } else if (data.error?.code === 368) {
+          throw new Error(
+            "Temporarily blocked due to rate limiting. Try again later",
           );
         } else {
           throw new Error(data.error?.message || "Failed to post to Facebook");
@@ -104,26 +103,6 @@ export class FacebookClient {
     } catch (error) {
       console.error("Facebook posting error:", error);
       throw error;
-    }
-  }
-
-  async verifyToken(): Promise<boolean> {
-    try {
-      const response = await fetch(
-        `${this.apiUrl}/debug_token?input_token=${this.accessToken}&access_token=${this.accessToken}`,
-      );
-      const data = await response.json();
-
-      if (!response.ok || !data.data?.is_valid) {
-        console.error("Token verification failed:", data);
-        return false;
-      }
-
-      console.log("Token verified successfully");
-      return true;
-    } catch (error) {
-      console.error("Token verification error:", error);
-      return false;
     }
   }
 
