@@ -137,8 +137,9 @@ export class FacebookClient {
 
   async getPageInfo() {
     try {
+      // Updated fields - removed fan_count which is deprecated
       const response = await fetch(
-        `${this.apiUrl}/${this.pageId}?fields=id,name,username,fan_count,link&access_token=${this.accessToken}`,
+        `${this.apiUrl}/${this.pageId}?fields=id,name,username,link,about,website,phone,emails&access_token=${this.accessToken}`,
       );
 
       const data = await response.json();
@@ -151,12 +152,41 @@ export class FacebookClient {
         id: data.id,
         name: data.name,
         username: data.username,
-        followers: data.fan_count,
         url: data.link,
+        about: data.about,
+        website: data.website,
       };
     } catch (error) {
       console.error("Facebook get page info error:", error);
       throw error;
+    }
+  }
+
+  async getPageFollowers() {
+    try {
+      // Alternative way to get follower count using page_fans metric
+      const response = await fetch(
+        `${this.apiUrl}/${this.pageId}/insights?metric=page_fans&access_token=${this.accessToken}`,
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Return null instead of throwing error
+        return null;
+      }
+
+      if (data.data && data.data[0] && data.data[0].values) {
+        const latestValue = data.data[0].values[data.data[0].values.length - 1];
+        return {
+          followers: latestValue.value,
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Facebook get followers error:", error);
+      return null;
     }
   }
 

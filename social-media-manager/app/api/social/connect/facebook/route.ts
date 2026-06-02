@@ -30,7 +30,10 @@ export async function POST(request: NextRequest) {
     const client = new FacebookClient(accessToken, pageId);
     const pageInfo = await client.getPageInfo();
 
-    // Save to database
+    // Get follower count separately (optional)
+    const followers = await client.getPageFollowers();
+
+    // Save to database - remove metadata field if it causes issues
     const accountData = {
       user_id: user.id,
       platform: "facebook",
@@ -39,11 +42,6 @@ export async function POST(request: NextRequest) {
       access_token: accessToken,
       refresh_token: null,
       expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-      metadata: {
-        page_name: pageInfo.name,
-        page_followers: pageInfo.followers,
-        page_url: pageInfo.url,
-      },
       is_active: true,
       updated_at: new Date().toISOString(),
     };
@@ -77,7 +75,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Facebook page connected successfully",
-      page: pageInfo,
+      page: {
+        name: pageInfo.name,
+        username: pageInfo.username,
+        url: pageInfo.url,
+        followers: followers?.followers || null,
+      },
     });
   } catch (error: any) {
     console.error("Facebook connection error:", error);
