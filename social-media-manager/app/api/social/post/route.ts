@@ -5,6 +5,7 @@ import { TwitterClient } from "@/lib/social/clients/twitter";
 import { InstagramClient } from "@/lib/social/clients/instagram";
 import { LinkedInClient } from "@/lib/social/clients/linkedin";
 import { TelegramClient } from "@/lib/social/clients/telegram";
+import { FacebookClient } from "@/lib/social/clients/facebook";
 
 export async function POST(request: Request) {
   try {
@@ -146,6 +147,20 @@ export async function POST(request: Request) {
               result = await telegram.sendPhoto(mediaUrls[0], content);
             } else {
               result = await telegram.sendMessage(content);
+            }
+            break;
+          case "facebook":
+            const facebook = new FacebookClient(
+              socialAccount.access_token,
+              socialAccount.platform_user_id,
+            );
+            if (mediaUrls && mediaUrls.length > 1) {
+              result = await facebook.postWithMultipleImages(
+                content,
+                mediaUrls,
+              );
+            } else {
+              result = await facebook.post(content, mediaUrls?.[0]);
             }
             break;
           default:

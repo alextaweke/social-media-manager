@@ -61,7 +61,7 @@ import { motion } from "framer-motion";
 import PostComposer from "@/components/dashboard/PostComposer";
 import TelegramConnection from "@/components/dashboard/TelegramConnection";
 import { toast } from "sonner";
-
+import FacebookConnection from "@/components/dashboard/FacebookConnection";
 export default function DashboardPage() {
   const { user, signOut } = useAuth();
   const [greeting, setGreeting] = useState("");
@@ -572,10 +572,9 @@ export default function DashboardPage() {
               </div>
             </div>
           </TabsContent>
-
           <TabsContent value="connect" className="space-y-6">
             <div className="grid md:grid-cols-2 gap-6">
-              {/* OAuth Platforms */}
+              {/* OAuth Platforms Card - Keep this for display only */}
               <Card>
                 <CardHeader>
                   <CardTitle>Social Media Platforms</CardTitle>
@@ -616,8 +615,12 @@ export default function DashboardPage() {
                               Connected
                             </Badge>
                           ) : (
-                            <Button size="sm" variant="outline">
-                              Connect
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled // Disabled because OAuth not implemented yet
+                            >
+                              Connect (Coming Soon)
                             </Button>
                           )}
                         </div>
@@ -627,7 +630,12 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              {/* Telegram Connection */}
+              {/* Facebook Connection - Dedicated Component */}
+              <FacebookConnection onConnected={fetchConnectedAccounts} />
+            </div>
+
+            {/* Telegram Connection - Already there */}
+            <div className="mt-6">
               <TelegramConnection onConnected={fetchConnectedAccounts} />
             </div>
           </TabsContent>
