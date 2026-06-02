@@ -1,7 +1,7 @@
 export class FacebookClient {
   private accessToken: string;
   private pageId: string;
-  private apiUrl = "https://graph.facebook.com/v18.0";
+  private apiUrl = "https://graph.facebook.com/v25.0";
 
   constructor(accessToken: string, pageId: string) {
     if (!accessToken || !pageId) {
