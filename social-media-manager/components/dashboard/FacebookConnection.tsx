@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, CheckCircle, AlertCircle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { FaFacebook } from "react-icons/fa";
+
 interface FacebookConnectionProps {
   onConnected?: () => void;
 }
@@ -29,9 +30,26 @@ export default function FacebookConnection({
   const [isConnecting, setIsConnecting] = useState(false);
   const [useEnvCredentials, setUseEnvCredentials] = useState(false);
 
-  // Update the connectFacebook function - modify the success handling
   const connectFacebook = async () => {
-    if (!useEnvCredentials && (!pageId || !accessToken)) {
+    // Get credentials
+    let finalPageId = pageId;
+    let finalAccessToken = accessToken;
+    const finalPageName = pageName;
+
+    if (useEnvCredentials) {
+      finalPageId = process.env.NEXT_PUBLIC_FACEBOOK_PAGE_ID || "";
+      finalAccessToken =
+        process.env.NEXT_PUBLIC_FACEBOOK_PAGE_ACCESS_TOKEN || "";
+
+      if (!finalPageId || !finalAccessToken) {
+        toast.error(
+          "Environment variables are not set. Please check your .env.local file",
+        );
+        return;
+      }
+    }
+
+    if (!finalPageId || !finalAccessToken) {
       toast.error("Please enter both Page ID and Access Token");
       return;
     }
@@ -43,13 +61,9 @@ export default function FacebookConnection({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          pageId: useEnvCredentials
-            ? process.env.NEXT_PUBLIC_FACEBOOK_PAGE_ID
-            : pageId,
-          pageName: pageName || undefined,
-          accessToken: useEnvCredentials
-            ? process.env.NEXT_PUBLIC_FACEBOOK_PAGE_ACCESS_TOKEN
-            : accessToken,
+          pageId: finalPageId.trim(),
+          pageName: finalPageName || undefined,
+          accessToken: finalAccessToken.trim(),
         }),
       });
 
@@ -60,7 +74,6 @@ export default function FacebookConnection({
       }
 
       if (data.success) {
-        // Updated to handle page object safely
         const pageNameConnected = data.page?.name || "Facebook page";
         toast.success(`${pageNameConnected} connected successfully!`);
         setPageId("");
@@ -117,7 +130,7 @@ export default function FacebookConnection({
         {!useEnvCredentials && (
           <>
             <div className="space-y-2">
-              <Label>Facebook Page ID</Label>
+              <Label>Facebook Page ID *</Label>
               <Input
                 placeholder="Enter your Facebook Page ID"
                 value={pageId}
@@ -138,7 +151,7 @@ export default function FacebookConnection({
             </div>
 
             <div className="space-y-2">
-              <Label>Page Access Token</Label>
+              <Label>Page Access Token *</Label>
               <Input
                 type="password"
                 placeholder="Enter your Facebook Page Access Token"
@@ -164,9 +177,7 @@ export default function FacebookConnection({
 
         <Button
           onClick={connectFacebook}
-          disabled={
-            isConnecting || (!useEnvCredentials && (!pageId || !accessToken))
-          }
+          disabled={isConnecting}
           className="w-full bg-blue-600 hover:bg-blue-700"
         >
           {isConnecting ? (
@@ -193,32 +204,11 @@ export default function FacebookConnection({
                 Graph API Explorer
               </a>
             </li>
-            <li>Select your app and get User Token</li>
-            <li>
-              Click Generate Access Token and add permissions:{" "}
-              <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">
-                pages_manage_posts, pages_read_engagement
-              </code>
-            </li>
-            <li>
-              Go to{" "}
-              <a
-                href="https://graph.facebook.com/me/accounts?access_token=YOUR_TOKEN"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500"
-              >
-                Get Page Token
-              </a>
-            </li>
-            <li>
-              Copy the{" "}
-              <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">
-                access_token
-              </code>{" "}
-              for your page
-            </li>
-            <li>Get Page ID from the same response or Page Settings</li>
+            <li>Select your app from the dropdown</li>
+            <li>Click Generate Access Token → Get Page Access Token</li>
+            <li>Select your page from the list</li>
+            <li>Copy the generated access token</li>
+            <li>Page ID is in the same response or in Page Settings</li>
           </ol>
         </div>
       </CardContent>
