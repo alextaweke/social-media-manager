@@ -1,43 +1,82 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import { FacebookClient } from "@/lib/social/clients/facebook";
+import { createClient } from "@/lib/supabase/server";
 
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    const { pageId, accessToken, content, imageUrl } = await request.json();
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (!pageId || !accessToken) {
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get Facebook account from database
+    const { data: fbAccount, error: fbError } = await supabase
+      .from("social_accounts")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("platform", "facebook")
+      .single();
+
+    if (fbError || !fbAccount) {
       return NextResponse.json(
-        { error: "Page ID and access token are required" },
-        { status: 400 },
+        { error: "No Facebook account found" },
+        { status: 404 },
       );
     }
 
-    const client = new FacebookClient(accessToken, pageId);
+    const results: any = {};
 
-    // Test getting page info
-    const pageInfo = await client.getPageInfo();
-    console.log("Page info:", pageInfo);
+    // Test 1: Get page info via proxy
+    try {
+      const proxyRes = await fetch("http://localhost:3000/api/facebook/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: fbAccount.platform_user_id,
+          method: "GET",
+          data: { fields: "id,name,username" },
+          accessToken: fbAccount.access_token,
+        }),
+      });
+      results.pageInfo = await proxyRes.json();
+    } catch (e: any) {
+      results.pageInfo = { error: e.message };
+    }
 
-    // Test posting
-    const result = await client.post(
-      content || "Test post from SocialHub API!",
-      imageUrl,
-    );
+    // Test 2: Try to post via proxy
+    try {
+      const postRes = await fetch("http://localhost:3000/api/facebook/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: `${fbAccount.platform_user_id}/feed`,
+          method: "POST",
+          data: {
+            message: `Test post from SocialHub - ${new Date().toISOString()}`,
+          },
+          accessToken: fbAccount.access_token,
+        }),
+      });
+      results.testPost = await postRes.json();
+    } catch (e: any) {
+      results.testPost = { error: e.message };
+    }
 
     return NextResponse.json({
       success: true,
-      pageInfo,
-      postResult: result,
+      account: {
+        pageId: fbAccount.platform_user_id,
+        username: fbAccount.platform_username,
+      },
+      testResults: results,
     });
   } catch (error: any) {
     console.error("Test error:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message,
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
