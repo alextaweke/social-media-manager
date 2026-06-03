@@ -1,6 +1,50 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = 3,
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error: any) {
+      lastError = error;
+      console.error(`Facebook proxy attempt ${attempt} failed:`, {
+        message: error?.message,
+        code: error?.cause?.code,
+        errno: error?.cause?.errno,
+      });
+
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+
+  throw lastError || new Error("Facebook API request failed");
+}
+
+function getSafeUrlForLog(url: string) {
+  const safeUrl = new URL(url);
+  if (safeUrl.searchParams.has("access_token")) {
+    safeUrl.searchParams.set("access_token", "***hidden***");
+  }
+  return safeUrl.toString();
+}
+
 export async function POST(request: NextRequest) {
   try {
     const {
@@ -35,7 +79,10 @@ export async function POST(request: NextRequest) {
       url += `?${params.toString()}`;
     }
 
-    console.log("Facebook Proxy Request:", { url, method });
+    console.log("Facebook Proxy Request:", {
+      url: getSafeUrlForLog(url),
+      method,
+    });
 
     const fetchOptions: RequestInit = {
       method,
@@ -55,7 +102,7 @@ export async function POST(request: NextRequest) {
       fetchOptions.body = formData.toString();
     }
 
-    const response = await fetch(url, fetchOptions);
+    const response = await fetchWithRetry(url, fetchOptions);
     const responseData = await response.json();
 
     console.log("Facebook Proxy Response Status:", response.status);
@@ -109,9 +156,9 @@ export async function GET(request: NextRequest) {
       url += `?${params.toString()}`;
     }
 
-    console.log("Facebook Proxy GET Request:", url);
+    console.log("Facebook Proxy GET Request:", getSafeUrlForLog(url));
 
-    const response = await fetch(url);
+    const response = await fetchWithRetry(url, {});
     const data = await response.json();
 
     return NextResponse.json({

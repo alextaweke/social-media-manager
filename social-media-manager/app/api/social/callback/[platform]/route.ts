@@ -114,7 +114,7 @@ export async function GET(
 // Add Facebook exchange function
 async function exchangeFacebookToken(code: string) {
   const response = await fetch(
-    "https://graph.facebook.com/v18.0/oauth/access_token",
+    "https://graph.facebook.com/v25.0/oauth/access_token",
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -132,7 +132,7 @@ async function exchangeFacebookToken(code: string) {
 
   // Get user info
   const userResponse = await fetch(
-    `https://graph.facebook.com/v18.0/me?access_token=${data.access_token}`,
+    `https://graph.facebook.com/v25.0/me?access_token=${data.access_token}`,
   );
   const userData = await userResponse.json();
 

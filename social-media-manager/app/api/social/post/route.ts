@@ -167,10 +167,6 @@ export async function POST(request: Request) {
                 socialAccount.platform_user_id,
               );
 
-              // Test the token first
-              const pageInfo = await facebook.getPageInfo();
-              console.log("Facebook page verified:", pageInfo.name);
-
               if (mediaUrls && mediaUrls.length > 0) {
                 console.log("Posting with image to Facebook");
                 result = await facebook.post(content, mediaUrls[0]);
