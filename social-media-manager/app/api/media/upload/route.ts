@@ -16,52 +16,59 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData();
-    const files = formData.getAll("files") as File[];
-    const uploadedFiles = [];
+    const file = formData.get("file") as File;
+
+    if (!file) {
+      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+    }
 
     // Ensure upload directory exists
     const uploadDir = path.join(process.cwd(), "public", "uploads", user.id);
     await mkdir(uploadDir, { recursive: true });
 
-    for (const file of files) {
-      const bytes = await file.arrayBuffer();
-      const buffer = Buffer.from(bytes);
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
 
-      // Generate unique filename
-      const ext = path.extname(file.name);
-      const filename = `${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
-      const filepath = path.join(uploadDir, filename);
+    // Generate unique filename
+    const ext = path.extname(file.name);
+    const filename = `${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
+    const filepath = path.join(uploadDir, filename);
 
-      // Save file
-      await writeFile(filepath, buffer);
+    // Save file
+    await writeFile(filepath, buffer);
 
-      // Determine file type
-      let fileType = "image";
-      if (file.type.startsWith("video")) fileType = "video";
-      else if (file.type.includes("gif")) fileType = "gif";
+    // Determine file type
+    let fileType = "image";
+    if (file.type.startsWith("video")) fileType = "video";
+    else if (file.type.includes("gif")) fileType = "gif";
 
-      const fileUrl = `/uploads/${user.id}/${filename}`;
+    const fileUrl = `/uploads/${user.id}/${filename}`;
 
-      // Save to database
-      const { data: media, error } = await supabase
-        .from("media_library")
-        .insert({
-          user_id: user.id,
-          file_name: file.name,
-          file_url: fileUrl,
-          file_type: fileType,
-          file_size: file.size,
-          mime_type: file.type,
-        })
-        .select()
-        .single();
+    // Save to database
+    const { data: media, error } = await supabase
+      .from("media_library")
+      .insert({
+        user_id: user.id,
+        file_name: file.name,
+        file_url: fileUrl,
+        file_type: fileType,
+        file_size: file.size,
+        mime_type: file.type,
+      })
+      .select()
+      .single();
 
-      if (error) throw error;
+    if (error) throw error;
 
-      uploadedFiles.push(media);
-    }
-
-    return NextResponse.json({ success: true, files: uploadedFiles });
+    return NextResponse.json({
+      success: true,
+      file: {
+        id: media.id,
+        url: fileUrl,
+        name: file.name,
+        type: fileType,
+      },
+    });
   } catch (error: any) {
     console.error("Upload error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
