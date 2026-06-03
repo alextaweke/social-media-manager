@@ -6,9 +6,11 @@ import path from "path";
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const { id } = await params;
+
     const supabase = await createClient();
     const {
       data: { user },
@@ -22,7 +24,7 @@ export async function DELETE(
     const { data: media, error: fetchError } = await supabase
       .from("media_library")
       .select("*")
-      .eq("id", params.id)
+      .eq("id", id)
       .eq("user_id", user.id)
       .single();
 
@@ -32,6 +34,7 @@ export async function DELETE(
 
     // Delete file from disk
     const filePath = path.join(process.cwd(), "public", media.file_url);
+
     try {
       await unlink(filePath);
     } catch (err) {
@@ -42,13 +45,17 @@ export async function DELETE(
     const { error } = await supabase
       .from("media_library")
       .delete()
-      .eq("id", params.id);
+      .eq("id", id);
 
     if (error) throw error;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Delete error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json(
+      { error: error.message || "Internal Server Error" },
+      { status: 500 },
+    );
   }
 }

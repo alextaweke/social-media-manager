@@ -31,8 +31,7 @@ export async function GET(request: NextRequest) {
         for (const [platform, stats] of Object.entries(
           data.platform_breakdown,
         )) {
-          const platformStats = stats as any;
-          csv += `${day.date},${platform},${platformStats.posts},${day.reach},${day.engagement},${data.engagement_rate}\n`;
+          csv += `${day.date},${platform},${stats},${day.reach},${day.engagement},${data.engagement_rate}\n`;
         }
       }
 
