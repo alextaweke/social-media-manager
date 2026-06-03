@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
-import { unlink } from "fs/promises";
-import path from "path";
 
 export async function DELETE(
   request: NextRequest,
@@ -32,22 +30,26 @@ export async function DELETE(
       return NextResponse.json({ error: "Media not found" }, { status: 404 });
     }
 
-    // Delete file from disk
-    const filePath = path.join(process.cwd(), "public", media.file_url);
+    // Delete from storage
+    if (media.storage_path) {
+      const { error: storageError } = await supabase.storage
+        .from("media")
+        .remove([media.storage_path]);
 
-    try {
-      await unlink(filePath);
-    } catch (err) {
-      console.error("File deletion error:", err);
+      if (storageError) {
+        console.error("Storage delete error:", storageError);
+      }
     }
 
     // Delete from database
-    const { error } = await supabase
+    const { error: dbError } = await supabase
       .from("media_library")
       .delete()
       .eq("id", id);
 
-    if (error) throw error;
+    if (dbError) {
+      throw dbError;
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
