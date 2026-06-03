@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let url = `https://graph.facebook.com/v18.0/${endpoint}`;
+    let url = `https://graph.facebook.com/v25.0/${endpoint}`;
 
     // Build query parameters
     const params = new URLSearchParams();
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let url = `https://graph.facebook.com/v18.0/${endpoint}`;
+    let url = `https://graph.facebook.com/v25.0/${endpoint}`;
     const params = new URLSearchParams();
 
     if (accessToken) {

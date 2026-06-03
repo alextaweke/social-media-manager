@@ -13,6 +13,11 @@ export class FacebookClient {
     this.useProxy = true;
   }
 
+  private getProxyUrl() {
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    return `${baseUrl}/api/facebook/proxy`;
+  }
+
   async post(
     content: string,
     imageUrl?: string,
@@ -22,7 +27,7 @@ export class FacebookClient {
 
       if (this.useProxy) {
         // Use proxy endpoint
-        const response = await fetch("/api/facebook/proxy", {
+        const response = await fetch(this.getProxyUrl(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -30,6 +35,7 @@ export class FacebookClient {
             method: "POST",
             data: {
               message: content,
+              ...(imageUrl ? { link: imageUrl } : {}),
             },
             accessToken: this.accessToken,
           }),
@@ -90,7 +96,7 @@ export class FacebookClient {
   async getPageInfo() {
     try {
       if (this.useProxy) {
-        const response = await fetch("/api/facebook/proxy", {
+        const response = await fetch(this.getProxyUrl(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
