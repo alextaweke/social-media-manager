@@ -62,6 +62,10 @@ import MediaLibrary from "@/components/dashboard/MediaLibrary";
 import HashtagManager from "@/components/dashboard/HashtagManager";
 import TemplatesLibrary from "@/components/dashboard/TemplatesLibrary";
 import TeamManagement from "@/components/dashboard/TeamManagement";
+import AISettings from "@/components/dashboard/AISettings";
+import AIEnhancementTool from "@/components/dashboard/AIEnhancementTool";
+import AIImageGenerator from "@/components/dashboard/AIImageGenerator";
+import AutoPostSettings from "@/components/dashboard/AutoPostSettings";
 
 export default function DashboardPage() {
   const { user, signOut } = useAuth();
@@ -239,6 +243,8 @@ export default function DashboardPage() {
             <TabsTrigger value="media">Media</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
             <TabsTrigger value="connect">Connect</TabsTrigger>
+            <TabsTrigger value="ai-settings">🤖 AI Settings</TabsTrigger>
+            <TabsTrigger value="ai-tools">🤖 AI Tools</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -416,7 +422,13 @@ export default function DashboardPage() {
               </div>
             </div>
           </TabsContent>
-
+          <TabsContent value="ai-tools" className="space-y-6">
+            <div className="grid lg:grid-cols-2 gap-6">
+              <AIEnhancementTool />
+              <AIImageGenerator />
+            </div>
+            <AutoPostSettings />
+          </TabsContent>
           {/* Composer Tab */}
           <TabsContent value="composer" className="space-y-6">
             <PostComposer />
@@ -425,6 +437,9 @@ export default function DashboardPage() {
           {/* Calendar Tab */}
           <TabsContent value="calendar" className="space-y-6">
             <ContentCalendar />
+          </TabsContent>
+          <TabsContent value="ai-settings" className="space-y-6">
+            <AISettings />
           </TabsContent>
 
           {/* Media Tab */}
