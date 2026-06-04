@@ -1,7 +1,9 @@
+/* eslint-disable react-hooks/immutability */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -34,11 +36,13 @@ import {
   Clock,
   X,
   Upload,
-  Image as ImageIcon,
-  Video,
-  FileImage,
+  Wand2,
+  Type,
+  Minus,
   Plus,
-  Grid3x3,
+  Copy,
+  Check,
+  Brain,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -59,6 +63,12 @@ interface MediaFile {
   url?: string;
 }
 
+interface EnhancementResult {
+  original: string;
+  enhanced: string;
+  action: string;
+}
+
 export default function PostComposer() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([
     "twitter",
@@ -75,6 +85,24 @@ export default function PostComposer() {
   const [showMediaLibrary, setShowMediaLibrary] = useState(false);
   const [savedMedia, setSavedMedia] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // AI Enhancement States
+  const [showAIEnhancer, setShowAIEnhancer] = useState(false);
+  const [enhancementResult, setEnhancementResult] =
+    useState<EnhancementResult | null>(null);
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiTone, setAiTone] = useState("engaging");
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
+  // Load saved AI generated image from localStorage
+  useEffect(() => {
+    const savedImage = localStorage.getItem("lastGeneratedImage");
+    if (savedImage && !mediaFiles.some((m) => m.url === savedImage)) {
+      setGeneratedImage(savedImage);
+    }
+  }, []);
 
   const platforms: Platform[] = [
     {
@@ -114,7 +142,13 @@ export default function PostComposer() {
     },
   ];
 
+  // AI Content Generation
   const generateAIContent = async () => {
+    if (!aiTopic) {
+      toast.error("Please enter a topic");
+      return;
+    }
+
     if (selectedPlatforms.length === 0) {
       toast.error("Please select at least one platform first");
       return;
@@ -126,9 +160,9 @@ export default function PostComposer() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          topic: "social media marketing tips",
+          topic: aiTopic,
           platform: selectedPlatforms[0],
-          tone: "engaging",
+          tone: aiTone,
           includeHashtags: true,
           length: "medium",
         }),
@@ -138,6 +172,7 @@ export default function PostComposer() {
       if (data.success) {
         setContent(data.content);
         toast.success("AI content generated! You can edit it below.");
+        setActiveTab("write");
       } else {
         throw new Error(data.error);
       }
@@ -148,6 +183,109 @@ export default function PostComposer() {
     }
   };
 
+  // AI Enhancement Actions
+  const enhanceContent = async (action: string) => {
+    if (!content.trim()) {
+      toast.error("Please add some content to enhance");
+      return;
+    }
+
+    setIsEnhancing(true);
+    try {
+      const response = await fetch("/api/ai/enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: content,
+          platform: selectedPlatforms[0] || "general",
+          tone: aiTone,
+          action,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setEnhancementResult({
+          original: data.original,
+          enhanced: data.enhanced,
+          action,
+        });
+        toast.success("Content enhanced! Review the result below.");
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to enhance content");
+    } finally {
+      setIsEnhancing(false);
+    }
+  };
+
+  const applyEnhancement = () => {
+    if (enhancementResult) {
+      setContent(enhancementResult.enhanced);
+      setEnhancementResult(null);
+      toast.success("Enhancement applied!");
+    }
+  };
+
+  // AI Image Generation
+  const generateImageForPost = async () => {
+    if (!content.trim() && !aiTopic) {
+      toast.error("Please add content or a topic to generate an image");
+      return;
+    }
+
+    const prompt = aiTopic || content.substring(0, 100);
+
+    setIsGeneratingImage(true);
+    try {
+      const response = await fetch("/api/ai/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          style: "photorealistic",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setGeneratedImage(data.image.url);
+        // Save to localStorage for persistence
+        localStorage.setItem("lastGeneratedImage", data.image.url);
+        toast.success("Image generated! You can add it to your post.");
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to generate image");
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
+  const addGeneratedImageToPost = () => {
+    if (generatedImage) {
+      // Add as media file
+      const newMedia: MediaFile = {
+        id: Date.now().toString(),
+        file: new File([], "ai-generated-image.jpg"),
+        preview: generatedImage,
+        type: "image",
+        uploading: false,
+        url: generatedImage,
+      };
+      setMediaFiles((prev) => [...prev, newMedia]);
+      setGeneratedImage(null);
+      localStorage.removeItem("lastGeneratedImage");
+      toast.success("Image added to your post!");
+    }
+  };
+
+  // Media Upload Functions
   const handleFileSelect = useCallback((files: FileList | null) => {
     if (!files) return;
 
@@ -165,7 +303,6 @@ export default function PostComposer() {
       }
     }
     setMediaFiles((prev) => [...prev, ...newFiles]);
-    // eslint-disable-next-line react-hooks/immutability
     uploadFiles(newFiles);
   }, []);
 
@@ -194,7 +331,6 @@ export default function PostComposer() {
                 : f,
             ),
           );
-          toast.success(`Uploaded: ${mediaFile.file.name}`);
         } else {
           throw new Error(data.error);
         }
@@ -243,18 +379,6 @@ export default function PostComposer() {
     toast.success("Media added to post");
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const files = e.dataTransfer.files;
-    handleFileSelect(files);
-  };
-
   const handlePublish = async () => {
     if (!content.trim()) {
       toast.error("Please add some content before publishing");
@@ -266,7 +390,6 @@ export default function PostComposer() {
       return;
     }
 
-    // Check if media is still uploading
     if (mediaFiles.some((m) => m.uploading)) {
       toast.error("Please wait for media to finish uploading");
       return;
@@ -302,6 +425,9 @@ export default function PostComposer() {
         setScheduleDate("");
         setShowScheduler(false);
         setMediaFiles([]);
+        setEnhancementResult(null);
+        setGeneratedImage(null);
+        localStorage.removeItem("lastGeneratedImage");
       } else {
         throw new Error(data.error);
       }
@@ -326,6 +452,24 @@ export default function PostComposer() {
     }
   };
 
+  const enhancementActions = [
+    { id: "enhance", label: "✨ Enhance", icon: Sparkles, action: "enhance" },
+    {
+      id: "grammar",
+      label: "📝 Grammar",
+      icon: Wand2,
+      action: "improve_grammar",
+    },
+    { id: "shorter", label: "📏 Shorter", icon: Minus, action: "make_shorter" },
+    { id: "longer", label: "📖 Longer", icon: Plus, action: "make_longer" },
+    {
+      id: "hashtags",
+      label: "#️⃣ Hashtags",
+      icon: Hash,
+      action: "add_hashtags",
+    },
+  ];
+
   return (
     <Card className="w-full shadow-lg border-0">
       <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg">
@@ -340,11 +484,13 @@ export default function PostComposer() {
           onValueChange={setActiveTab}
           className="space-y-6"
         >
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="write">✍️ Write Post</TabsTrigger>
             <TabsTrigger value="ai">🤖 AI Assistant</TabsTrigger>
+            <TabsTrigger value="enhance">✨ Enhance</TabsTrigger>
           </TabsList>
 
+          {/* Write Tab */}
           <TabsContent value="write" className="space-y-6">
             {/* Platform Selection */}
             <div className="space-y-3">
@@ -394,8 +540,8 @@ export default function PostComposer() {
                         size="sm"
                         onClick={fetchSavedMedia}
                       >
-                        <Grid3x3 className="h-4 w-4 mr-1" />
-                        Media Library
+                        <ImagePlus className="h-4 w-4 mr-1" />
+                        Library
                       </Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
@@ -446,6 +592,35 @@ export default function PostComposer() {
                 </div>
               </div>
 
+              {/* AI Generated Image Display */}
+              {generatedImage && (
+                <div className="relative border rounded-lg p-3 bg-purple-50 dark:bg-purple-950/20">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={generatedImage}
+                      alt="AI Generated"
+                      className="w-16 h-16 object-cover rounded"
+                    />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">AI Generated Image</p>
+                      <p className="text-xs text-gray-500">
+                        Generated based on your content
+                      </p>
+                    </div>
+                    <Button size="sm" onClick={addGeneratedImageToPost}>
+                      Add to Post
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setGeneratedImage(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Drop Zone */}
               <div
                 className={`border-2 border-dashed rounded-lg p-6 transition-colors ${
@@ -453,8 +628,11 @@ export default function PostComposer() {
                     ? "border-green-500 bg-green-50 dark:bg-green-950/20"
                     : "border-gray-300 hover:border-blue-500"
                 }`}
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleFileSelect(e.dataTransfer.files);
+                }}
               >
                 <input
                   ref={fileInputRef}
@@ -502,11 +680,6 @@ export default function PostComposer() {
                         >
                           <X className="h-3 w-3" />
                         </button>
-                        {media.type === "video" && (
-                          <div className="absolute bottom-1 right-1 bg-black/50 rounded px-1">
-                            <Video className="h-3 w-3 text-white" />
-                          </div>
-                        )}
                       </div>
                     ))}
                     <button
@@ -541,25 +714,20 @@ export default function PostComposer() {
                     </Badge>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="sm" className="h-8">
-                    <Hash className="h-4 w-4 mr-1" />
-                    Hashtags
-                  </Button>
-                </div>
               </div>
             </div>
           </TabsContent>
 
+          {/* AI Assistant Tab */}
           <TabsContent value="ai" className="space-y-6">
             <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-gray-800 dark:to-gray-800 rounded-lg p-6">
               <div className="text-center mb-4">
-                <Sparkles className="h-12 w-12 text-purple-600 mx-auto mb-3" />
+                <Brain className="h-12 w-12 text-purple-600 mx-auto mb-3" />
                 <h3 className="text-lg font-semibold mb-2">
                   AI Content Generator
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Let our AI create engaging content for you in seconds
+                  Generate engaging content in seconds
                 </p>
               </div>
 
@@ -568,35 +736,61 @@ export default function PostComposer() {
                   <Label>Topic / Keyword</Label>
                   <Input
                     placeholder="e.g., Digital marketing trends, Product launch, Industry news"
+                    value={aiTopic}
+                    onChange={(e) => setAiTopic(e.target.value)}
                     className="mt-1"
                   />
                 </div>
                 <div>
                   <Label>Tone of Voice</Label>
-                  <select className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2">
-                    <option>Professional & Informative</option>
-                    <option>Casual & Engaging</option>
-                    <option>Humorous & Witty</option>
-                    <option>Inspirational & Motivational</option>
+                  <select
+                    value={aiTone}
+                    onChange={(e) => setAiTone(e.target.value)}
+                    className="w-full mt-1 rounded-md border border-input bg-background px-3 py-2"
+                  >
+                    <option value="professional">
+                      Professional & Informative
+                    </option>
+                    <option value="engaging">Casual & Engaging</option>
+                    <option value="humorous">Humorous & Witty</option>
+                    <option value="inspirational">
+                      Inspirational & Motivational
+                    </option>
                   </select>
                 </div>
-                <Button
-                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white"
-                  onClick={generateAIContent}
-                  disabled={isGenerating}
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="mr-2 h-4 w-4" />
-                      Generate Post
-                    </>
-                  )}
-                </Button>
+
+                <div className="flex gap-3">
+                  <Button
+                    className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 text-white"
+                    onClick={generateAIContent}
+                    disabled={isGenerating}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Generate Post
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={generateImageForPost}
+                    disabled={isGeneratingImage}
+                  >
+                    {isGeneratingImage ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ImagePlus className="h-4 w-4" />
+                    )}
+                    <span className="ml-1">Generate Image</span>
+                  </Button>
+                </div>
               </div>
             </div>
 
@@ -611,6 +805,94 @@ export default function PostComposer() {
                 <p className="text-xs text-gray-500 text-right">
                   You can edit the generated content above
                 </p>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Enhance Tab */}
+          <TabsContent value="enhance" className="space-y-6">
+            <div className="grid gap-4">
+              {enhancementActions.map((action) => {
+                // 1. Assign the icon to a capitalized variable name
+                const IconComponent = action.icon;
+
+                return (
+                  <Button
+                    key={action.id}
+                    variant="outline"
+                    className="h-auto py-4 justify-start gap-3"
+                    onClick={() => enhanceContent(action.action)}
+                    disabled={isEnhancing || !content.trim()}
+                  >
+                    {/* 2. Render it using JSX tags instead of curly braces */}
+                    <IconComponent className="h-5 w-5" />
+
+                    <div className="text-left">
+                      <p className="font-medium">{action.label}</p>
+                      <p className="text-xs text-gray-500">
+                        {action.id === "enhance" &&
+                          "Make your content more engaging and polished"}
+                        {action.id === "grammar" &&
+                          "Fix grammar and improve readability"}
+                        {action.id === "shorter" &&
+                          "Condense for platforms like Twitter"}
+                        {action.id === "longer" &&
+                          "Expand with more details and value"}
+                        {action.id === "hashtags" &&
+                          "Generate relevant hashtags for your content"}
+                      </p>
+                    </div>
+                    {isEnhancing && action.id === enhancementResult?.action && (
+                      <Loader2 className="ml-auto h-4 w-4 animate-spin" />
+                    )}
+                  </Button>
+                );
+              })}
+            </div>
+
+            {/* Enhancement Result */}
+            {enhancementResult && (
+              <div className="mt-6 p-4 border rounded-lg bg-green-50 dark:bg-green-950/20">
+                <div className="flex justify-between items-start mb-3">
+                  <h4 className="font-semibold flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-green-600" />
+                    Enhanced Result
+                  </h4>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={applyEnhancement}>
+                      <Check className="h-4 w-4 mr-1" />
+                      Apply
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Original:</p>
+                    <p className="text-sm p-2 bg-white dark:bg-gray-800 rounded">
+                      {enhancementResult.original}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-green-600 mb-1">Enhanced:</p>
+                    <p className="text-sm p-2 bg-white dark:bg-gray-800 rounded">
+                      {enhancementResult.enhanced}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!content.trim() && (
+              <div className="text-center py-8 text-gray-500">
+                <Wand2 className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>Write some content first, then enhance it with AI</p>
+                <Button
+                  variant="link"
+                  onClick={() => setActiveTab("write")}
+                  className="mt-2"
+                >
+                  Go to Write Tab
+                </Button>
               </div>
             )}
           </TabsContent>
@@ -662,23 +944,15 @@ export default function PostComposer() {
           <div className="space-y-3 mt-6 pt-4 border-t">
             <Label className="text-sm font-semibold">Preview</Label>
             <div className="rounded-lg border bg-gray-50 dark:bg-gray-800 p-4">
-              {/* Media Preview */}
               {mediaFiles.length > 0 && (
                 <div className="mb-3 flex gap-2 flex-wrap">
                   {mediaFiles.map((media, index) => (
                     <div key={index} className="relative w-16 h-16">
-                      {media.type === "image" ? (
-                        <img
-                          src={media.preview}
-                          alt=""
-                          className="w-full h-full object-cover rounded"
-                        />
-                      ) : (
-                        <video
-                          src={media.preview}
-                          className="w-full h-full object-cover rounded"
-                        />
-                      )}
+                      <img
+                        src={media.preview}
+                        alt=""
+                        className="w-full h-full object-cover rounded"
+                      />
                     </div>
                   ))}
                 </div>
@@ -737,8 +1011,15 @@ export default function PostComposer() {
             <Save className="mr-2 h-4 w-4" />
             Save Draft
           </Button>
-          {content && (
-            <Button variant="ghost" onClick={() => setContent("")}>
+          {(content || mediaFiles.length > 0) && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setContent("");
+                setMediaFiles([]);
+                setEnhancementResult(null);
+              }}
+            >
               <Trash2 className="h-4 w-4" />
             </Button>
           )}
