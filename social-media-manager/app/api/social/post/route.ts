@@ -31,9 +31,9 @@ export async function POST(request: Request) {
     } = body;
 
     console.log("Received post request:", {
-      content,
+      content: content?.substring(0, 100),
       platforms,
-      mediaUrls,
+      mediaUrls: mediaUrls?.length || 0,
       scheduleFor,
     });
 
@@ -135,10 +135,7 @@ export async function POST(request: Request) {
             result = await linkedin.post(content, mediaUrls?.[0]);
             break;
           case "telegram":
-            console.log("Creating Telegram client with:", {
-              botToken: socialAccount.access_token?.substring(0, 20) + "...",
-              chatId: socialAccount.platform_user_id,
-            });
+            console.log("Creating Telegram client");
             const telegram = new TelegramClient(
               socialAccount.access_token,
               socialAccount.platform_user_id,
@@ -149,45 +146,31 @@ export async function POST(request: Request) {
               result = await telegram.sendMessage(content);
             }
             break;
-          // Find the Facebook case in your switch statement and update it:
           case "facebook":
             console.log(
               "Facebook posting - Page ID:",
               socialAccount.platform_user_id,
             );
-            console.log("Facebook posting - Content length:", content.length);
-            console.log(
-              "Facebook posting - Has media:",
-              !!(mediaUrls && mediaUrls.length > 0),
+            const facebook = new FacebookClient(
+              socialAccount.access_token,
+              socialAccount.platform_user_id,
             );
-
-            try {
-              const facebook = new FacebookClient(
-                socialAccount.access_token,
-                socialAccount.platform_user_id,
-              );
-
-              if (mediaUrls && mediaUrls.length > 0) {
-                console.log("Posting with image to Facebook");
-                result = await facebook.post(content, mediaUrls[0]);
-              } else {
-                console.log("Posting text only to Facebook");
-                result = await facebook.post(content);
-              }
-
-              console.log("Facebook post successful:", result);
-            } catch (fbError: any) {
-              console.error("Detailed Facebook error:", {
-                message: fbError.message,
-                stack: fbError.stack,
-                response: fbError.response,
-              });
-              throw new Error(`Facebook error: ${fbError.message}`);
+            if (mediaUrls && mediaUrls.length > 0) {
+              result = await facebook.post(content, mediaUrls[0]);
+            } else {
+              result = await facebook.post(content);
             }
+            console.log("Facebook post successful:", result.id);
             break;
           default:
             throw new Error(`Unsupported platform: ${platform}`);
         }
+
+        // Store platform_post_id in posts table for analytics
+        await supabase
+          .from("posts")
+          .update({ platform_post_id: result.id })
+          .eq("id", post.id);
 
         // Record published post
         await supabase.from("published_posts").insert({
@@ -212,11 +195,20 @@ export async function POST(request: Request) {
 
     // Update post status
     const hasFailures = results.some((r) => !r.success);
+    const hasSuccess = results.some((r) => r.success);
+
+    let finalStatus = "failed";
+    if (hasSuccess && !hasFailures) {
+      finalStatus = "published";
+    } else if (hasSuccess && hasFailures) {
+      finalStatus = "partially_published";
+    }
+
     await supabase
       .from("posts")
       .update({
-        status: hasFailures ? "failed" : "published",
-        published_at: hasFailures ? null : new Date(),
+        status: finalStatus,
+        published_at: hasSuccess ? new Date() : null,
         error_message: hasFailures
           ? results
               .filter((r) => !r.success)
@@ -226,17 +218,25 @@ export async function POST(request: Request) {
       })
       .eq("id", post.id);
 
+    // Return appropriate response
+    if (!hasSuccess) {
+      return NextResponse.json(
+        { error: "All platforms failed", details: results },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({
-      success: !hasFailures,
+      success: true,
       postId: post.id,
       results,
+      partial: hasFailures,
     });
   } catch (error: any) {
     console.error("Unexpected error in post API:", error);
     return NextResponse.json(
       {
         error: error.message || "Internal server error",
-        details: error.stack,
       },
       { status: 500 },
     );

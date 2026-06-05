@@ -143,7 +143,25 @@ export default function AnalyticsDashboard() {
       daily: [],
     });
   };
-
+  const fetchMetrics = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch("/api/analytics/fetch-metrics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daysBack: 30, platform: selectedPlatform }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast.success(`Synced ${data.results.synced} posts`);
+        fetchAnalytics(); // Refresh analytics
+      }
+    } catch (error) {
+      toast.error("Failed to fetch metrics");
+    } finally {
+      setSyncing(false);
+    }
+  };
   const fetchRecentPosts = async () => {
     try {
       const response = await fetch("/api/analytics/posts");
@@ -326,6 +344,14 @@ export default function AnalyticsDashboard() {
             <span className="ml-1">Export</span>
           </Button>
         </div>
+        <Button onClick={fetchMetrics} disabled={syncing}>
+          {syncing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          <span className="ml-1">Fetch Latest Metrics</span>
+        </Button>
       </div>
 
       {/* Platform Filter */}
@@ -407,10 +433,14 @@ export default function AnalyticsDashboard() {
               ) : (
                 platformEntries.map(([platform, data]) => {
                   const engagement =
-                    (data.likes || 0) + (data.comments || 0) + (data.shares || 0);
+                    (data.likes || 0) +
+                    (data.comments || 0) +
+                    (data.shares || 0);
                   const share =
                     totalPlatformReach > 0
-                      ? Math.round(((data.reach || 0) / totalPlatformReach) * 100)
+                      ? Math.round(
+                          ((data.reach || 0) / totalPlatformReach) * 100,
+                        )
                       : 0;
 
                   return (
@@ -513,41 +543,39 @@ export default function AnalyticsDashboard() {
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
-            {platformEntries.map(
-              ([platform, data]) => (
-                <div key={platform} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-3 h-3 rounded-full ${platformColors[platform] || "bg-gray-500"}`}
-                      />
-                      <span className="font-medium capitalize">{platform}</span>
-                    </div>
-                    <span className="text-sm text-gray-500">
-                      {(data.impressions || 0).toLocaleString()} impressions
-                    </span>
+            {platformEntries.map(([platform, data]) => (
+              <div key={platform} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`w-3 h-3 rounded-full ${platformColors[platform] || "bg-gray-500"}`}
+                    />
+                    <span className="font-medium capitalize">{platform}</span>
                   </div>
-                  <div className="grid grid-cols-4 gap-2 text-center text-xs">
-                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                      <Heart className="h-3 w-3 mx-auto mb-1 text-red-500" />
-                      {(data.likes || 0).toLocaleString()}
-                    </div>
-                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                      <MessageCircle className="h-3 w-3 mx-auto mb-1 text-green-500" />
-                      {(data.comments || 0).toLocaleString()}
-                    </div>
-                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                      <Share2 className="h-3 w-3 mx-auto mb-1 text-purple-500" />
-                      {(data.shares || 0).toLocaleString()}
-                    </div>
-                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                      <Eye className="h-3 w-3 mx-auto mb-1 text-blue-500" />
-                      {(data.reach || 0).toLocaleString()}
-                    </div>
+                  <span className="text-sm text-gray-500">
+                    {(data.impressions || 0).toLocaleString()} impressions
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                    <Heart className="h-3 w-3 mx-auto mb-1 text-red-500" />
+                    {(data.likes || 0).toLocaleString()}
+                  </div>
+                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                    <MessageCircle className="h-3 w-3 mx-auto mb-1 text-green-500" />
+                    {(data.comments || 0).toLocaleString()}
+                  </div>
+                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                    <Share2 className="h-3 w-3 mx-auto mb-1 text-purple-500" />
+                    {(data.shares || 0).toLocaleString()}
+                  </div>
+                  <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                    <Eye className="h-3 w-3 mx-auto mb-1 text-blue-500" />
+                    {(data.reach || 0).toLocaleString()}
                   </div>
                 </div>
-              ),
-            )}
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
