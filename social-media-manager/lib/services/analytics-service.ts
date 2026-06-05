@@ -33,6 +33,16 @@ export interface PlatformMetrics {
 }
 
 export class AnalyticsService {
+  static getPostsWithEngagement(
+    id: string,
+    arg1: number,
+    platform: string,
+  ): any {
+    throw new Error("Method not implemented.");
+  }
+  static getAnalyticsSummary(id: string, days: number): any {
+    throw new Error("Method not implemented.");
+  }
   // ============ FACEBOOK ============
   static async fetchFacebookPostData(
     accessToken: string,
@@ -480,5 +490,51 @@ export class AnalyticsService {
     }
 
     return results;
+  }
+  // Add this method to AnalyticsService class
+  static generateCSV(summary: any, posts: any[]): string {
+    const rows: string[] = [];
+
+    // Header
+    rows.push(`"SocialHub Analytics Report"`);
+    rows.push(`"Generated:",${new Date().toISOString()}`);
+    rows.push(``);
+
+    // Summary
+    rows.push(`"SUMMARY STATISTICS"`);
+    rows.push(`"Total Impressions",${summary.total_impressions}`);
+    rows.push(`"Total Reach",${summary.total_reach}`);
+    rows.push(`"Total Likes",${summary.total_likes}`);
+    rows.push(`"Total Comments",${summary.total_comments}`);
+    rows.push(`"Total Shares",${summary.total_shares}`);
+    rows.push(`"Total Posts",${posts.length}`);
+    rows.push(``);
+
+    // Platform breakdown
+    rows.push(`"PLATFORM BREAKDOWN"`);
+    rows.push(`"Platform","Impressions","Reach","Likes","Comments","Shares"`);
+    for (const [platform, data] of Object.entries(summary.by_platform || {})) {
+      rows.push(
+        `"${platform}",${(data as any).impressions},${(data as any).reach},${(data as any).likes},${(data as any).comments},${(data as any).shares}`,
+      );
+    }
+    rows.push(``);
+
+    // Posts detail
+    rows.push(`"POST DETAILS"`);
+    rows.push(
+      `"Date","Platform","Content","Likes","Comments","Shares","Impressions","Reach"`,
+    );
+
+    for (const post of posts) {
+      for (const pp of post.published_posts || []) {
+        const content = `"${(post.content || "").replace(/"/g, '""').substring(0, 100)}"`;
+        rows.push(
+          `"${post.published_at?.split("T")[0] || ""}","${pp.platform}",${content},${pp.engagement_likes || 0},${pp.engagement_comments || 0},${pp.engagement_shares || 0},${pp.impressions || 0},${pp.reach || 0}`,
+        );
+      }
+    }
+
+    return rows.join("\n");
   }
 }
