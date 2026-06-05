@@ -140,8 +140,6 @@ export async function POST(request: Request) {
               chatId: socialAccount.platform_user_id,
             });
             const telegram = new TelegramClient(
-              socialAccount.access_token,
-              socialAccount.platform_user_id,
               socialAccount.bot_token,
               socialAccount.chat_id,
             );
