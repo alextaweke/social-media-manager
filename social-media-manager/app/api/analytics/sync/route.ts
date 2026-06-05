@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     // Fetch connected social accounts for this user
     const { data: accounts, error: accountsError } = await supabase
       .from("social_accounts")
-      .select("platform, access_token, page_id, username, bot_token, chat_id")
+      .select("platform, access_token, page_id, user_id, bot_token, chat_id")
       .eq("user_id", user.id)
       .eq("is_active", true);
 
@@ -64,10 +64,10 @@ export async function POST(request: NextRequest) {
             break;
 
           case "twitter":
-            if (account.access_token && account.username) {
+            if (account.access_token && account.user_id) {
               syncResults.twitter = await AnalyticsService.fetchTwitterInsights(
                 account.access_token,
-                account.username,
+                account.user_id,
               );
             }
             break;
