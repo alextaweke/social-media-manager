@@ -3,14 +3,24 @@
 export class TelegramClient {
   private botToken: string;
   private chatId: string;
-
-  constructor(botToken: string, chatId: string) {
-    if (!botToken || !chatId) {
-      throw new Error("Bot token and chat ID are required");
+  private platform_user_id: string;
+  private access_token: string;
+  constructor(
+    botToken: string,
+    chatId: string,
+    platform_user_id: string,
+    access_token: string,
+  ) {
+    if (!botToken || !chatId || !platform_user_id || !access_token) {
+      throw new Error(
+        "Bot token, chat ID, platform user ID, and access token are required",
+      );
     }
 
     this.botToken = botToken.trim();
     this.chatId = chatId.toString();
+    this.platform_user_id = platform_user_id.toString();
+    this.access_token = access_token.trim();
   }
 
   private async telegramRequest(method: string, data: any) {

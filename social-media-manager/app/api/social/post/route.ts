@@ -142,6 +142,8 @@ export async function POST(request: Request) {
             const telegram = new TelegramClient(
               socialAccount.access_token,
               socialAccount.platform_user_id,
+              socialAccount.bot_token,
+              socialAccount.chat_id,
             );
             if (mediaUrls && mediaUrls.length > 0) {
               result = await telegram.sendPhoto(mediaUrls[0], content);
