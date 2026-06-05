@@ -15,8 +15,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   TrendingUp,
-  TrendingDown,
-  Users,
   Heart,
   Share2,
   MessageCircle,
@@ -26,12 +24,12 @@ import {
   RefreshCw,
   Loader2,
   BarChart3,
-  ThumbsUp,
   Activity,
   Target,
   Zap,
-  Clock,
   Award,
+  Bookmark,
+  MousePointer,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -248,6 +246,34 @@ export default function AnalyticsDashboard() {
     telegram: "bg-blue-500",
   };
 
+  const platformChartColors: Record<string, string> = {
+    facebook: "#2563eb",
+    instagram: "#ec4899",
+    twitter: "#38bdf8",
+    linkedin: "#1d4ed8",
+    telegram: "#0ea5e9",
+  };
+
+  const platformEntries = Object.entries(analytics?.by_platform || {});
+  const totalPlatformReach = platformEntries.reduce(
+    (sum, [, data]) => sum + (data.reach || 0),
+    0,
+  );
+  let chartStart = 0;
+  const donutGradient =
+    platformEntries.length > 0 && totalPlatformReach > 0
+      ? platformEntries
+          .map(([platform, data]) => {
+            const percent = ((data.reach || 0) / totalPlatformReach) * 100;
+            const segment = `${
+              platformChartColors[platform] || "#64748b"
+            } ${chartStart}% ${chartStart + percent}%`;
+            chartStart += percent;
+            return segment;
+          })
+          .join(", ")
+      : "#e5e7eb 0% 100%";
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -360,6 +386,122 @@ export default function AnalyticsDashboard() {
         })}
       </div>
 
+      {/* Platform Performance */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5" />
+              Platform Performance
+            </CardTitle>
+            <CardDescription>
+              Compare reach and engagement for each connected platform
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {platformEntries.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-gray-500 md:col-span-2 xl:col-span-3">
+                  Platform analytics will appear after posts collect engagement.
+                </div>
+              ) : (
+                platformEntries.map(([platform, data]) => {
+                  const engagement =
+                    (data.likes || 0) + (data.comments || 0) + (data.shares || 0);
+                  const share =
+                    totalPlatformReach > 0
+                      ? Math.round(((data.reach || 0) / totalPlatformReach) * 100)
+                      : 0;
+
+                  return (
+                    <div
+                      key={platform}
+                      className="rounded-lg border bg-white p-4 shadow-sm dark:bg-gray-900"
+                    >
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`h-3 w-3 rounded-full ${
+                              platformColors[platform] || "bg-gray-500"
+                            }`}
+                          />
+                          <p className="font-medium capitalize">{platform}</p>
+                        </div>
+                        <Badge variant="secondary">{share}% reach</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-gray-500">Reach</p>
+                          <p className="font-semibold">
+                            {(data.reach || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Engagement</p>
+                          <p className="font-semibold">
+                            {engagement.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                        <div
+                          className={`h-full ${platformColors[platform] || "bg-gray-500"}`}
+                          style={{ width: `${share}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Reach Share</CardTitle>
+            <CardDescription>Circle view by platform</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col items-center gap-5">
+              <div
+                className="relative h-44 w-44 rounded-full"
+                style={{ background: `conic-gradient(${donutGradient})` }}
+              >
+                <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full bg-white text-center shadow-inner dark:bg-gray-900">
+                  <span className="text-2xl font-bold">
+                    {totalPlatformReach.toLocaleString()}
+                  </span>
+                  <span className="text-xs text-gray-500">total reach</span>
+                </div>
+              </div>
+              <div className="w-full space-y-2">
+                {platformEntries.map(([platform, data]) => (
+                  <div
+                    key={platform}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <span className="flex items-center gap-2 capitalize">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{
+                          background:
+                            platformChartColors[platform] || "#64748b",
+                        }}
+                      />
+                      {platform}
+                    </span>
+                    <span className="font-medium">
+                      {(data.reach || 0).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Platform Breakdown */}
       <Card>
         <CardHeader>
@@ -371,7 +513,7 @@ export default function AnalyticsDashboard() {
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
-            {Object.entries(analytics?.by_platform || {}).map(
+            {platformEntries.map(
               ([platform, data]) => (
                 <div key={platform} className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -558,38 +700,3 @@ export default function AnalyticsDashboard() {
     </div>
   );
 }
-
-// Missing icons
-const Bookmark = (props: any) => (
-  <svg
-    {...props}
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-  </svg>
-);
-const MousePointer = (props: any) => (
-  <svg
-    {...props}
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
-    <path d="M13 13l6 6" />
-  </svg>
-);

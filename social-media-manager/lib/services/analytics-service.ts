@@ -20,9 +20,14 @@ export class AnalyticsService {
         "page_follows",
       ].join(",");
 
+      // FIX: updated from v18.0 → v21.0 (latest stable Graph API)
       const response = await fetch(
-        `https://graph.facebook.com/v18.0/${pageId}/insights?metric=${metrics}&since=${since.toISOString().split("T")[0]}&until=${until.toISOString().split("T")[0]}&access_token=${accessToken}`,
+        `https://graph.facebook.com/v21.0/${pageId}/insights?metric=${metrics}&since=${since.toISOString().split("T")[0]}&until=${until.toISOString().split("T")[0]}&access_token=${accessToken}`,
       );
+
+      if (!response.ok) {
+        throw new Error(`Facebook API error: ${response.status}`);
+      }
 
       const data = await response.json();
       return data.data || [];
@@ -47,9 +52,14 @@ export class AnalyticsService {
         "follower_count",
       ].join(",");
 
+      // FIX: updated from v18.0 → v21.0
       const response = await fetch(
-        `https://graph.facebook.com/v18.0/${igUserId}/insights?metric=${metrics}&period=day&since=${since.toISOString().split("T")[0]}&until=${until.toISOString().split("T")[0]}&access_token=${accessToken}`,
+        `https://graph.facebook.com/v21.0/${igUserId}/insights?metric=${metrics}&period=day&since=${since.toISOString().split("T")[0]}&until=${until.toISOString().split("T")[0]}&access_token=${accessToken}`,
       );
+
+      if (!response.ok) {
+        throw new Error(`Instagram API error: ${response.status}`);
+      }
 
       const data = await response.json();
       return data.data || [];
@@ -69,11 +79,48 @@ export class AnalyticsService {
         },
       );
 
+      if (!response.ok) {
+        throw new Error(`Twitter API error: ${response.status}`);
+      }
+
       const data = await response.json();
       return data.data?.public_metrics || null;
     } catch (error) {
       console.error("Error fetching Twitter insights:", error);
       return null;
+    }
+  }
+
+  // ADDED: Fetch LinkedIn Page Analytics
+  static async fetchLinkedInInsights(
+    accessToken: string,
+    organizationId: string,
+    since: Date,
+    until: Date,
+  ) {
+    try {
+      const sinceMs = since.getTime();
+      const untilMs = until.getTime();
+
+      const response = await fetch(
+        `https://api.linkedin.com/v2/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=urn:li:organization:${organizationId}&timeIntervals.timeGranularityType=DAY&timeIntervals.timeRange.start=${sinceMs}&timeIntervals.timeRange.end=${untilMs}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "LinkedIn-Version": "202404",
+          },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`LinkedIn API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.elements || [];
+    } catch (error) {
+      console.error("Error fetching LinkedIn insights:", error);
+      return [];
     }
   }
 
@@ -100,10 +147,15 @@ export class AnalyticsService {
   }
 
   // Get posts from database with engagement
-  static async getPostsWithEngagement(userId: string, limit: number = 50) {
+  // FIX: added optional platform filter to match usage in API route
+  static async getPostsWithEngagement(
+    userId: string,
+    limit: number = 50,
+    platform?: string,
+  ) {
     const supabase = await createClient();
 
-    const { data: posts, error } = await supabase
+    let query = supabase
       .from("posts")
       .select(
         `
@@ -125,6 +177,12 @@ export class AnalyticsService {
       .order("published_at", { ascending: false })
       .limit(limit);
 
+    // FIX: filter by platform at DB level when specified
+    if (platform && platform !== "all") {
+      query = query.eq("published_posts.platform", platform);
+    }
+
+    const { data: posts, error } = await query;
     if (error) throw error;
     return posts;
   }
@@ -150,17 +208,43 @@ export class AnalyticsService {
     return (totalEngagement / reach) * 100;
   }
 
-  // Get analytics summary
+  // FIX: getAnalyticsSummary now queries "published_posts" (consistent with route.ts)
+  // instead of the non-existent "analytics_data" table
   static async getAnalyticsSummary(userId: string, days: number = 30) {
     const supabase = await createClient();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const { data: analytics, error } = await supabase
-      .from("analytics_data")
-      .select("*")
+    // Get all published posts for this user in the period
+    const { data: posts, error: postsError } = await supabase
+      .from("posts")
+      .select("id")
       .eq("user_id", userId)
-      .gte("date", startDate.toISOString().split("T")[0]);
+      .eq("status", "published")
+      .gte("published_at", startDate.toISOString());
+
+    if (postsError) throw postsError;
+
+    const postIds = posts?.map((p) => p.id) || [];
+
+    if (postIds.length === 0) {
+      return {
+        total_impressions: 0,
+        total_reach: 0,
+        total_likes: 0,
+        total_comments: 0,
+        total_shares: 0,
+        total_saves: 0,
+        total_clicks: 0,
+        by_platform: {},
+        daily: [],
+      };
+    }
+
+    const { data: engagement, error } = await supabase
+      .from("published_posts")
+      .select("*")
+      .in("post_id", postIds);
 
     if (error) throw error;
 
@@ -170,20 +254,19 @@ export class AnalyticsService {
       total_likes: 0,
       total_comments: 0,
       total_shares: 0,
-      total_saves: 0,
+      total_saves: 0, // FIX: now actually summed
       total_clicks: 0,
       by_platform: {} as Record<string, any>,
       daily: [] as any[],
     };
 
-    for (const item of analytics || []) {
-      summary.total_impressions += item.impressions || 0;
+    for (const item of engagement || []) {
+      summary.total_impressions += item.impressions || item.reach || 0;
       summary.total_reach += item.reach || 0;
-      summary.total_likes += item.likes || 0;
-      summary.total_comments += item.comments || 0;
-      summary.total_shares += item.shares || 0;
-      summary.total_saves += item.saves || 0;
-      summary.total_clicks += item.clicks || 0;
+      summary.total_likes += item.engagement_likes || 0;
+      summary.total_comments += item.engagement_comments || 0;
+      summary.total_shares += item.engagement_shares || 0;
+      summary.total_saves += item.engagement_saves || 0; // FIX: was missing
 
       if (!summary.by_platform[item.platform]) {
         summary.by_platform[item.platform] = {
@@ -192,15 +275,60 @@ export class AnalyticsService {
           likes: 0,
           comments: 0,
           shares: 0,
+          saves: 0,
         };
       }
-      summary.by_platform[item.platform].impressions += item.impressions || 0;
+      summary.by_platform[item.platform].impressions +=
+        item.impressions || item.reach || 0;
       summary.by_platform[item.platform].reach += item.reach || 0;
-      summary.by_platform[item.platform].likes += item.likes || 0;
-      summary.by_platform[item.platform].comments += item.comments || 0;
-      summary.by_platform[item.platform].shares += item.shares || 0;
+      summary.by_platform[item.platform].likes += item.engagement_likes || 0;
+      summary.by_platform[item.platform].comments +=
+        item.engagement_comments || 0;
+      summary.by_platform[item.platform].shares += item.engagement_shares || 0;
+      summary.by_platform[item.platform].saves += item.engagement_saves || 0;
     }
 
     return summary;
+  }
+
+  // ADDED: Generate CSV export data (referenced by /api/analytics/export)
+  static generateCSV(analyticsData: any, posts: any[]): string {
+    const lines: string[] = [];
+
+    // Summary section
+    lines.push("ANALYTICS SUMMARY");
+    lines.push(`Total Impressions,${analyticsData.total_impressions}`);
+    lines.push(`Total Reach,${analyticsData.total_reach}`);
+    lines.push(`Total Likes,${analyticsData.total_likes}`);
+    lines.push(`Total Comments,${analyticsData.total_comments}`);
+    lines.push(`Total Shares,${analyticsData.total_shares}`);
+    lines.push(`Total Saves,${analyticsData.total_saves}`);
+    lines.push("");
+
+    // Platform breakdown
+    lines.push("PLATFORM BREAKDOWN");
+    lines.push("Platform,Impressions,Reach,Likes,Comments,Shares");
+    for (const [platform, data] of Object.entries(
+      analyticsData.by_platform || {},
+    ) as [string, any][]) {
+      lines.push(
+        `${platform},${data.impressions},${data.reach},${data.likes},${data.comments},${data.shares}`,
+      );
+    }
+    lines.push("");
+
+    // Posts section
+    lines.push("RECENT POSTS");
+    lines.push("Date,Content,Platform,Likes,Comments,Shares,Reach");
+    for (const post of posts) {
+      for (const pp of post.published_posts || []) {
+        const content = `"${(post.content || "").replace(/"/g, '""').substring(0, 100)}"`;
+        lines.push(
+          `${post.published_at?.split("T")[0] || ""},${content},${pp.platform},${pp.engagement_likes || 0},${pp.engagement_comments || 0},${pp.engagement_shares || 0},${pp.reach || 0}`,
+        );
+      }
+    }
+
+    return lines.join("\n");
   }
 }

@@ -26,13 +26,13 @@ import { toast } from "sonner";
 import {
   Clock,
   Calendar,
-  Bell,
   Zap,
   AlertCircle,
   CheckCircle,
   Trash2,
-  Plus,
+  Bot,
 } from "lucide-react";
+import { FaFacebook, FaInstagram, FaTwitter } from "react-icons/fa";
 
 interface ScheduledPost {
   id: string;
@@ -43,10 +43,10 @@ interface ScheduledPost {
 }
 
 const availablePlatforms = [
-  { id: "twitter", name: "Twitter", icon: "🐦", color: "bg-blue-400" },
-  { id: "facebook", name: "Facebook", icon: "👍", color: "bg-blue-600" },
-  { id: "instagram", name: "Instagram", icon: "📸", color: "bg-pink-500" },
-  { id: "telegram", name: "Telegram", icon: "🤖", color: "bg-blue-500" },
+  { id: "twitter", name: "Twitter", icon: FaTwitter, color: "bg-blue-400" },
+  { id: "facebook", name: "Facebook", icon: FaFacebook, color: "bg-blue-600" },
+  { id: "instagram", name: "Instagram", icon: FaInstagram, color: "bg-pink-500" },
+  { id: "telegram", name: "Telegram", icon: Bot, color: "bg-blue-500" },
 ];
 
 const topics = [
@@ -98,7 +98,12 @@ export default function AutoPostSettings() {
       const response = await fetch("/api/posts/scheduled");
       const data = await response.json();
       if (data.success) {
-        setScheduledPosts(data.posts || []);
+        setScheduledPosts(
+          (data.posts || []).map((post: any) => ({
+            ...post,
+            platforms: Array.isArray(post.platforms) ? post.platforms : [],
+          })),
+        );
       }
     } catch (error) {
       console.error("Error fetching scheduled posts:", error);
@@ -244,20 +249,24 @@ export default function AutoPostSettings() {
               <div className="space-y-2">
                 <Label>Platforms to Post On</Label>
                 <div className="flex flex-wrap gap-3">
-                  {availablePlatforms.map((platform) => (
-                    <button
-                      key={platform.id}
-                      onClick={() => togglePlatform(platform.id)}
-                      className={`px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${
-                        selectedPlatforms.includes(platform.id)
-                          ? `${platform.color} text-white shadow-md scale-105`
-                          : "bg-gray-100 dark:bg-gray-800 hover:bg-gray-200"
-                      }`}
-                    >
-                      <span>{platform.icon}</span>
-                      <span>{platform.name}</span>
-                    </button>
-                  ))}
+                  {availablePlatforms.map((platform) => {
+                    const Icon = platform.icon;
+
+                    return (
+                      <button
+                        key={platform.id}
+                        onClick={() => togglePlatform(platform.id)}
+                        className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all ${
+                          selectedPlatforms.includes(platform.id)
+                            ? `${platform.color} scale-105 text-white shadow-md`
+                            : "bg-gray-100 hover:bg-gray-200 dark:bg-gray-800"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                        <span>{platform.name}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -322,21 +331,25 @@ export default function AutoPostSettings() {
                     <div className="flex-1">
                       <p className="text-sm line-clamp-2">{post.content}</p>
                       <div className="flex flex-wrap gap-2 mt-2">
-                        {post.platforms.map((platform) => {
+                        {(post.platforms || []).map((platform) => {
                           const p = availablePlatforms.find(
                             (a) => a.id === platform,
                           );
+                          const Icon = p?.icon;
                           return (
                             <Badge
                               key={platform}
                               variant="secondary"
                               className="gap-1"
                             >
-                              <span>{p?.icon}</span>
+                              {Icon && <Icon className="h-3.5 w-3.5" />}
                               {p?.name}
                             </Badge>
                           );
                         })}
+                        {(post.platforms || []).length === 0 && (
+                          <Badge variant="secondary">No platform set</Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1">

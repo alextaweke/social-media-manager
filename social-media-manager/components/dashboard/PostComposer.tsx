@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, type ElementType } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -40,16 +40,16 @@ import {
   Type,
   Minus,
   Plus,
-  Copy,
   Check,
   Brain,
 } from "lucide-react";
+import { FaFacebook, FaInstagram, FaLinkedin, FaTwitter } from "react-icons/fa";
 import { toast } from "sonner";
 
 interface Platform {
   id: string;
   name: string;
-  icon: string;
+  icon: ElementType;
   color: string;
   connected: boolean;
 }
@@ -81,13 +81,11 @@ export default function PostComposer() {
   const [showScheduler, setShowScheduler] = useState(false);
   const [activeTab, setActiveTab] = useState("write");
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
-  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [showMediaLibrary, setShowMediaLibrary] = useState(false);
   const [savedMedia, setSavedMedia] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // AI Enhancement States
-  const [showAIEnhancer, setShowAIEnhancer] = useState(false);
   const [enhancementResult, setEnhancementResult] =
     useState<EnhancementResult | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
@@ -108,35 +106,35 @@ export default function PostComposer() {
     {
       id: "twitter",
       name: "Twitter",
-      icon: "🐦",
+      icon: FaTwitter,
       color: "bg-blue-400",
       connected: true,
     },
     {
       id: "instagram",
       name: "Instagram",
-      icon: "📸",
+      icon: FaInstagram,
       color: "bg-pink-500",
       connected: true,
     },
     {
       id: "linkedin",
       name: "LinkedIn",
-      icon: "💼",
+      icon: FaLinkedin,
       color: "bg-blue-700",
       connected: false,
     },
     {
       id: "facebook",
       name: "Facebook",
-      icon: "👍",
+      icon: FaFacebook,
       color: "bg-blue-600",
       connected: true,
     },
     {
       id: "telegram",
       name: "Telegram",
-      icon: "🤖",
+      icon: Brain,
       color: "bg-blue-500",
       connected: true,
     },
@@ -407,8 +405,9 @@ export default function PostComposer() {
           platforms: selectedPlatforms,
           mediaUrls,
           scheduleFor: scheduleDate || null,
-          aiGenerated: activeTab === "ai",
-        }),
+        aiGenerated: activeTab === "ai" || Boolean(aiTopic),
+        aiPrompt: aiTopic || undefined,
+      }),
       });
 
       const data = await response.json();
@@ -453,18 +452,18 @@ export default function PostComposer() {
   };
 
   const enhancementActions = [
-    { id: "enhance", label: "✨ Enhance", icon: Sparkles, action: "enhance" },
+    { id: "enhance", label: "Enhance", icon: Sparkles, action: "enhance" },
     {
       id: "grammar",
-      label: "📝 Grammar",
+      label: "Grammar",
       icon: Wand2,
       action: "improve_grammar",
     },
-    { id: "shorter", label: "📏 Shorter", icon: Minus, action: "make_shorter" },
-    { id: "longer", label: "📖 Longer", icon: Plus, action: "make_longer" },
+    { id: "shorter", label: "Shorter", icon: Minus, action: "make_shorter" },
+    { id: "longer", label: "Longer", icon: Plus, action: "make_longer" },
     {
       id: "hashtags",
-      label: "#️⃣ Hashtags",
+      label: "Hashtags",
       icon: Hash,
       action: "add_hashtags",
     },
@@ -472,10 +471,13 @@ export default function PostComposer() {
 
   return (
     <Card className="w-full shadow-lg border-0">
-      <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg">
-        <CardTitle className="text-2xl">Create New Post</CardTitle>
-        <CardDescription className="text-blue-100">
-          Craft engaging content and share it across your social networks
+      <CardHeader className="rounded-t-lg bg-gradient-to-r from-sky-600 via-indigo-600 to-fuchsia-600 text-white">
+        <CardTitle className="flex items-center gap-2 text-2xl">
+          <Sparkles className="h-6 w-6" />
+          Create New Post
+        </CardTitle>
+        <CardDescription className="text-sky-100">
+          Generate, edit, preview, publish, or schedule from one focused composer.
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-6">
@@ -484,10 +486,19 @@ export default function PostComposer() {
           onValueChange={setActiveTab}
           className="space-y-6"
         >
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="write">✍️ Write Post</TabsTrigger>
-            <TabsTrigger value="ai">🤖 AI Assistant</TabsTrigger>
-            <TabsTrigger value="enhance">✨ Enhance</TabsTrigger>
+          <TabsList className="grid h-auto w-full grid-cols-3">
+            <TabsTrigger value="write" className="gap-2">
+              <Type className="h-4 w-4" />
+              Write
+            </TabsTrigger>
+            <TabsTrigger value="ai" className="gap-2">
+              <Brain className="h-4 w-4" />
+              Generate
+            </TabsTrigger>
+            <TabsTrigger value="enhance" className="gap-2">
+              <Wand2 className="h-4 w-4" />
+              Improve
+            </TabsTrigger>
           </TabsList>
 
           {/* Write Tab */}
@@ -496,32 +507,36 @@ export default function PostComposer() {
             <div className="space-y-3">
               <Label className="text-sm font-semibold">Select Platforms</Label>
               <div className="flex flex-wrap gap-3">
-                {platforms.map((platform) => (
-                  <Button
-                    key={platform.id}
-                    type="button"
-                    variant={
-                      selectedPlatforms.includes(platform.id)
-                        ? "default"
-                        : "outline"
-                    }
-                    className={`gap-2 ${
-                      selectedPlatforms.includes(platform.id)
-                        ? platform.color
-                        : ""
-                    }`}
-                    onClick={() => togglePlatform(platform.id)}
-                    disabled={!platform.connected}
-                  >
-                    <span>{platform.icon}</span>
-                    {platform.name}
-                    {!platform.connected && (
-                      <Badge variant="secondary" className="ml-2 text-xs">
-                        Connect
-                      </Badge>
-                    )}
-                  </Button>
-                ))}
+                {platforms.map((platform) => {
+                  const Icon = platform.icon;
+
+                  return (
+                    <Button
+                      key={platform.id}
+                      type="button"
+                      variant={
+                        selectedPlatforms.includes(platform.id)
+                          ? "default"
+                          : "outline"
+                      }
+                      className={`gap-2 ${
+                        selectedPlatforms.includes(platform.id)
+                          ? platform.color
+                          : ""
+                      }`}
+                      onClick={() => togglePlatform(platform.id)}
+                      disabled={!platform.connected}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {platform.name}
+                      {!platform.connected && (
+                        <Badge variant="secondary" className="ml-2 text-xs">
+                          Connect
+                        </Badge>
+                      )}
+                    </Button>
+                  );
+                })}
               </div>
             </div>
 
@@ -966,13 +981,14 @@ export default function PostComposer() {
                     const platformInfo = platforms.find(
                       (p) => p.id === platform,
                     );
+                    const Icon = platformInfo?.icon;
                     return (
                       <Badge
                         key={platform}
                         variant="secondary"
                         className="gap-1"
                       >
-                        <span>{platformInfo?.icon}</span>
+                        {Icon && <Icon className="h-3.5 w-3.5" />}
                         {platformInfo?.name}
                       </Badge>
                     );

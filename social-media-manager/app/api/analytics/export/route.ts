@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
+import { AnalyticsService } from "@/lib/services/analytics-service";
 
+// GET /api/analytics/export
+// Streams a CSV file download with analytics summary + per-post breakdown
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -15,38 +18,30 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const period = searchParams.get("period") || "30d";
-    const format = searchParams.get("format") || "csv";
+    const platform = searchParams.get("platform") || "all";
 
-    // Fetch analytics data
-    const response = await fetch(
-      `${request.nextUrl.origin}/api/analytics?period=${period}`,
-    );
-    const { data } = await response.json();
+    const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
 
-    if (format === "csv") {
-      // Generate CSV
-      let csv = "Date,Platform,Posts,Reach,Engagement,Engagement Rate\n";
+    // Fetch summary and posts using the service
+    const [summary, posts] = await Promise.all([
+      AnalyticsService.getAnalyticsSummary(user.id, days),
+      AnalyticsService.getPostsWithEngagement(user.id, 100, platform),
+    ]);
 
-      for (const day of data.daily_stats) {
-        for (const [platform, stats] of Object.entries(
-          data.platform_breakdown,
-        )) {
-          csv += `${day.date},${platform},${stats},${day.reach},${day.engagement},${data.engagement_rate}\n`;
-        }
-      }
+    const csv = AnalyticsService.generateCSV(summary, posts || []);
 
-      return new NextResponse(csv, {
-        headers: {
-          "Content-Type": "text/csv",
-          "Content-Disposition": `attachment; filename=analytics_${period}_${Date.now()}.csv`,
-        },
-      });
-    } else {
-      // Return JSON
-      return NextResponse.json(data);
-    }
+    const filename = `analytics_${period}_${new Date().toISOString().split("T")[0]}.csv`;
+
+    return new NextResponse(csv, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (error: any) {
-    console.error("Export error:", error);
+    console.error("Analytics export error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

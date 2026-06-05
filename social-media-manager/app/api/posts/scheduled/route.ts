@@ -40,7 +40,56 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    return NextResponse.json({ success: true, posts: posts || [] });
+    let autoPostQuery = supabase
+      .from("auto_post_queue")
+      .select("*")
+      .eq("user_id", user.id)
+      .in("status", ["pending", "processing"]);
+
+    if (date) {
+      autoPostQuery = autoPostQuery.eq("scheduled_for", date);
+    }
+
+    if (startDate && endDate) {
+      autoPostQuery = autoPostQuery
+        .gte("scheduled_for", startDate)
+        .lte("scheduled_for", endDate);
+    }
+
+    const { data: autoPosts, error: autoPostError } = await autoPostQuery.order(
+      "scheduled_for",
+      { ascending: true },
+    );
+
+    if (autoPostError) throw autoPostError;
+
+    const normalizedAutoPosts = (autoPosts || []).map((post) => ({
+      id: post.id,
+      content: post.content,
+      platforms: post.platforms || [],
+      scheduled_for: post.scheduled_for,
+      status: post.status,
+      source: "auto",
+    }));
+
+    const normalizedPosts = (posts || []).map((post) => ({
+      ...post,
+      platforms: Array.isArray(post.platforms)
+        ? post.platforms
+        : Array.isArray(post.platform_specific?.platforms)
+          ? post.platform_specific.platforms
+          : [],
+      source: "manual",
+    }));
+
+    return NextResponse.json({
+      success: true,
+      posts: [...normalizedPosts, ...normalizedAutoPosts].sort(
+        (a, b) =>
+          new Date(a.scheduled_for).getTime() -
+          new Date(b.scheduled_for).getTime(),
+      ),
+    });
   } catch (error: any) {
     console.error("Error fetching scheduled posts:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -114,13 +163,43 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { postId } = await request.json();
+    // `source` tells us which table owns this post:
+    //   "auto"   → cancel row in auto_post_queue only
+    //   "manual" → delete from posts + content_queue
+    const { postId, source } = await request.json();
 
-    // Delete post and related queue entries
-    await supabase.from("content_queue").delete().eq("post_id", postId);
-    const { error } = await supabase.from("posts").delete().eq("id", postId);
+    if (!postId) {
+      return NextResponse.json(
+        { error: "postId is required" },
+        { status: 400 },
+      );
+    }
 
-    if (error) throw error;
+    if (source === "auto") {
+      const { error: queueError } = await supabase
+        .from("auto_post_queue")
+        .update({ status: "cancelled" })
+        .eq("id", postId)
+        .eq("user_id", user.id);
+
+      if (queueError) throw queueError;
+    } else {
+      // Remove platform queue entries first (FK constraint)
+      const { error: contentQueueError } = await supabase
+        .from("content_queue")
+        .delete()
+        .eq("post_id", postId);
+
+      if (contentQueueError) throw contentQueueError;
+
+      const { error } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", postId)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

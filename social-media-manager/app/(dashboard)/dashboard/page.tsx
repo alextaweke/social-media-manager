@@ -26,20 +26,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   TrendingUp,
-  Users,
   Heart,
   Share2,
-  MoreVertical,
   LogOut,
   Settings,
   User,
   Calendar,
-  Clock,
   Zap,
-  Brain,
   BarChart3,
   PlusCircle,
-  ChevronRight,
   Activity,
   Eye,
   ThumbsUp,
@@ -47,9 +42,7 @@ import {
   Sparkles,
   Bot,
   Image as ImageIcon,
-  Hash,
-  Users as UsersIcon,
-  Layout,
+  Workflow,
 } from "lucide-react";
 import { FaInstagram, FaTwitter, FaLinkedin, FaFacebook } from "react-icons/fa";
 import { motion } from "framer-motion";
@@ -61,8 +54,6 @@ import AnalyticsDashboard from "@/components/dashboard/AnalyticsDashboard";
 import MediaLibrary from "@/components/dashboard/MediaLibrary";
 import HashtagManager from "@/components/dashboard/HashtagManager";
 import TemplatesLibrary from "@/components/dashboard/TemplatesLibrary";
-import TeamManagement from "@/components/dashboard/TeamManagement";
-import AISettings from "@/components/dashboard/AISettings";
 import AIEnhancementTool from "@/components/dashboard/AIEnhancementTool";
 import AIImageGenerator from "@/components/dashboard/AIImageGenerator";
 import AutoPostSettings from "@/components/dashboard/AutoPostSettings";
@@ -234,17 +225,40 @@ export default function DashboardPage() {
       </div>
 
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Tabs Navigation - Updated with more tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8">
-          <TabsList className="grid w-full max-w-4xl grid-cols-6">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="composer">Create</TabsTrigger>
-            <TabsTrigger value="calendar">Calendar</TabsTrigger>
-            <TabsTrigger value="media">Media</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-            <TabsTrigger value="connect">Connect</TabsTrigger>
-            <TabsTrigger value="ai-settings">🤖 AI Settings</TabsTrigger>
-            <TabsTrigger value="ai-tools">🤖 AI Tools</TabsTrigger>
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl p-1 sm:grid-cols-4 lg:max-w-5xl lg:grid-cols-8">
+            <TabsTrigger value="overview" className="gap-2">
+              <Activity className="h-4 w-4" />
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="composer" className="gap-2">
+              <PlusCircle className="h-4 w-4" />
+              Create
+            </TabsTrigger>
+            <TabsTrigger value="calendar" className="gap-2">
+              <Calendar className="h-4 w-4" />
+              Calendar
+            </TabsTrigger>
+            <TabsTrigger value="media" className="gap-2">
+              <ImageIcon className="h-4 w-4" />
+              Media
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Analytics
+            </TabsTrigger>
+            <TabsTrigger value="automation" className="gap-2">
+              <Workflow className="h-4 w-4" />
+              Auto Post
+            </TabsTrigger>
+            <TabsTrigger value="ai-tools" className="gap-2">
+              <Sparkles className="h-4 w-4" />
+              AI Tools
+            </TabsTrigger>
+            <TabsTrigger value="connect" className="gap-2">
+              <Share2 className="h-4 w-4" />
+              Connect
+            </TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -262,7 +276,7 @@ export default function DashboardPage() {
                     {greeting}, {userName}! 👋
                   </h1>
                   <p className="text-gray-600 dark:text-gray-300 mt-1">
-                    Here s what s happening with your social media today.
+                    Here&apos;s what&apos;s happening with your social media today.
                   </p>
                 </div>
                 <div className="mt-4 sm:mt-0 flex space-x-3">
@@ -332,10 +346,10 @@ export default function DashboardPage() {
                       <Button
                         variant="outline"
                         className="h-20 flex flex-col gap-2"
-                        onClick={() => setActiveTab("calendar")}
+                        onClick={() => setActiveTab("automation")}
                       >
-                        <Calendar className="h-5 w-5" />
-                        <span>Schedule Post</span>
+                        <Workflow className="h-5 w-5" />
+                        <span>Auto Post</span>
                       </Button>
                       <Button
                         variant="outline"
@@ -427,7 +441,6 @@ export default function DashboardPage() {
               <AIEnhancementTool />
               <AIImageGenerator />
             </div>
-            <AutoPostSettings />
           </TabsContent>
           {/* Composer Tab */}
           <TabsContent value="composer" className="space-y-6">
@@ -438,8 +451,8 @@ export default function DashboardPage() {
           <TabsContent value="calendar" className="space-y-6">
             <ContentCalendar />
           </TabsContent>
-          <TabsContent value="ai-settings" className="space-y-6">
-            <AISettings />
+          <TabsContent value="automation" className="space-y-6">
+            <AutoPostSettings />
           </TabsContent>
 
           {/* Media Tab */}
