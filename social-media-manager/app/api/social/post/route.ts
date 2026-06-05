@@ -72,6 +72,7 @@ export async function POST(request: Request) {
     }
 
     const results = [];
+    const platformPostIds: Record<string, string> = {};
 
     // If scheduled, just create queue items
     if (scheduleFor) {
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
           post_id: post.id,
           platform,
           scheduled_for: scheduleFor,
+          status: "pending",
         });
       }
 
@@ -108,6 +110,21 @@ export async function POST(request: Request) {
         if (accountError || !socialAccount) {
           console.error(`Account error for ${platform}:`, accountError);
           throw new Error(`${platform} account not connected`);
+        }
+
+        // Check token exists
+        if (!socialAccount.access_token) {
+          throw new Error(
+            `${platform} access token is missing. Please reconnect.`,
+          );
+        }
+
+        // Check token expiration
+        if (
+          socialAccount.expires_at &&
+          new Date(socialAccount.expires_at) < new Date()
+        ) {
+          throw new Error(`${platform} token expired. Please reconnect.`);
         }
 
         console.log(`Found account for ${platform}:`, {
@@ -166,20 +183,31 @@ export async function POST(request: Request) {
             throw new Error(`Unsupported platform: ${platform}`);
         }
 
-        // Store platform_post_id in posts table for analytics
-        await supabase
-          .from("posts")
-          .update({ platform_post_id: result.id })
-          .eq("id", post.id);
+        // Store platform_post_id for this platform
+        platformPostIds[platform] = result.id;
 
         // Record published post
-        await supabase.from("published_posts").insert({
-          post_id: post.id,
-          platform,
-          platform_post_id: result.id,
-          platform_post_url: result.url,
-          published_at: new Date(),
-        });
+        const { error: insertError } = await supabase
+          .from("published_posts")
+          .insert({
+            post_id: post.id,
+            platform,
+            platform_post_id: result.id,
+            platform_post_url: result.url,
+            published_at: new Date(),
+            engagement_likes: 0,
+            engagement_comments: 0,
+            engagement_shares: 0,
+            impressions: 0,
+            reach: 0,
+          });
+
+        if (insertError) {
+          console.error(
+            `Error recording published post for ${platform}:`,
+            insertError,
+          );
+        }
 
         results.push({
           platform,
@@ -204,11 +232,16 @@ export async function POST(request: Request) {
       finalStatus = "partially_published";
     }
 
+    // Update posts table once with all platform_post_ids
     await supabase
       .from("posts")
       .update({
         status: finalStatus,
         published_at: hasSuccess ? new Date() : null,
+        platform_post_id:
+          Object.keys(platformPostIds).length > 0
+            ? JSON.stringify(platformPostIds)
+            : null,
         error_message: hasFailures
           ? results
               .filter((r) => !r.success)
