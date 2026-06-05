@@ -62,6 +62,9 @@ export async function POST() {
               const telegram = new TelegramClient(
                 account.access_token,
                 account.platform_user_id,
+                account.bot_token,
+                account.chat_id,
+                // Pass access token for Telegram API calls
               );
               result = await telegram.sendMessage(post.content);
               break;
