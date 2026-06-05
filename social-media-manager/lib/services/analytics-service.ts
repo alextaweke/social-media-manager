@@ -22,7 +22,7 @@ export class AnalyticsService {
 
       // FIX: updated from v18.0 → v21.0 (latest stable Graph API)
       const response = await fetch(
-        `https://graph.facebook.com/v21.0/${pageId}/insights?metric=${metrics}&since=${since.toISOString().split("T")[0]}&until=${until.toISOString().split("T")[0]}&access_token=${accessToken}`,
+        `https://graph.facebook.com/v25.0/${pageId}/insights?metric=${metrics}&since=${since.toISOString().split("T")[0]}&until=${until.toISOString().split("T")[0]}&access_token=${accessToken}`,
       );
 
       if (!response.ok) {
@@ -54,7 +54,7 @@ export class AnalyticsService {
 
       // FIX: updated from v18.0 → v21.0
       const response = await fetch(
-        `https://graph.facebook.com/v21.0/${igUserId}/insights?metric=${metrics}&period=day&since=${since.toISOString().split("T")[0]}&until=${until.toISOString().split("T")[0]}&access_token=${accessToken}`,
+        `https://graph.facebook.com/v25.0/${igUserId}/insights?metric=${metrics}&period=day&since=${since.toISOString().split("T")[0]}&until=${until.toISOString().split("T")[0]}&access_token=${accessToken}`,
       );
 
       if (!response.ok) {
