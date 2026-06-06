@@ -738,14 +738,6 @@ export class AnalyticsService {
           permalink: metrics.permalink,
           engagement_rate: metrics.engagement_rate,
         },
-
-
-
-
-
-
-
-        
       })
       .eq("post_id", postId)
       .eq("platform", metrics.platform);

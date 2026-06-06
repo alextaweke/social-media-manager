@@ -19,23 +19,37 @@ export async function GET(request: NextRequest) {
     const platform = searchParams.get("platform");
     const limit = parseInt(searchParams.get("limit") || "10", 10);
 
-    let query = supabase
+    // In the posts query, add media_urls:
+    let postsQuery = supabase
       .from("posts")
       .select(
         `
-        id,
-        content,
-        published_at,
-        published_posts (
-          platform,
-          engagement_likes,
-          engagement_comments,
-          engagement_shares,
-          engagement_saves,
-          reach,
-          impressions
-        )
-      `,
+    id,
+    content,
+    media_urls,
+    platform_post_id,
+    published_at,
+    status,
+    published_posts!left (
+      id,
+      platform,
+      platform_post_id,
+      platform_post_url,
+      engagement_likes,
+      engagement_comments,
+      engagement_shares,
+      engagement_saves,
+      impressions,
+      reach,
+      clicks,
+      video_views,
+      video_avg_watch_time,
+      profile_views,
+      follower_gain,
+      last_synced,
+      raw_response
+    )
+  `,
       )
       .eq("user_id", user.id)
       .eq("status", "published")
@@ -43,10 +57,10 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     if (platform && platform !== "all") {
-      query = query.eq("published_posts.platform", platform);
+      postsQuery = postsQuery.eq("published_posts.platform", platform);
     }
 
-    const { data: posts, error } = await query;
+    const { data: posts, error } = await postsQuery;
 
     if (error) throw error;
 

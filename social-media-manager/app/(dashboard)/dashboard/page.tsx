@@ -57,7 +57,7 @@ import TemplatesLibrary from "@/components/dashboard/TemplatesLibrary";
 import AIEnhancementTool from "@/components/dashboard/AIEnhancementTool";
 import AIImageGenerator from "@/components/dashboard/AIImageGenerator";
 import AutoPostSettings from "@/components/dashboard/AutoPostSettings";
-
+import PostManager from "@/components/dashboard/PostManager";
 export default function DashboardPage() {
   const { user, signOut } = useAuth();
   const [greeting, setGreeting] = useState("");
@@ -259,6 +259,11 @@ export default function DashboardPage() {
               <Share2 className="h-4 w-4" />
               Connect
             </TabsTrigger>
+
+            <TabsTrigger value="posts" className="gap-2">
+              <Share2 className="h-4 w-4" />
+              Posts
+            </TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -276,7 +281,8 @@ export default function DashboardPage() {
                     {greeting}, {userName}! 👋
                   </h1>
                   <p className="text-gray-600 dark:text-gray-300 mt-1">
-                    Here&apos;s what&apos;s happening with your social media today.
+                    Here&apos;s what&apos;s happening with your social media
+                    today.
                   </p>
                 </div>
                 <div className="mt-4 sm:mt-0 flex space-x-3">
@@ -471,6 +477,10 @@ export default function DashboardPage() {
           {/* Analytics Tab */}
           <TabsContent value="analytics" className="space-y-6">
             <AnalyticsDashboard />
+          </TabsContent>
+          {/* Posts Tab */}
+          <TabsContent value="posts" className="space-y-6">
+            <PostManager />
           </TabsContent>
 
           {/* Connect Tab */}
