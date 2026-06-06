@@ -20,112 +20,148 @@ export async function GET(request: NextRequest) {
     const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString().split("T")[0];
 
-    // Get posts for this user in the period
+    // Get posts for post count
     const { data: posts } = await supabase
       .from("posts")
-      .select("id, content, created_at, published_at, platform_specific")
+      .select("id, published_at")
       .eq("user_id", user.id)
       .eq("status", "published")
-      .gte("published_at", startDate.toISOString()); // FIX: use published_at consistently
-
-    const postIds = posts?.map((p) => p.id) || [];
-
-    // FIX: if no posts, return empty structure early
-    if (postIds.length === 0) {
-      return NextResponse.json(
-        {
-          success: true,
-          data: buildEmptyResponse(days),
-        },
-        {
-          headers: { "Cache-Control": "private, max-age=60" }, // ADDED: cache header
-        },
-      );
-    }
-
-    // Get engagement data from published_posts
-    // FIX: also select engagement_saves which was missing
-    let engagementQuery = supabase
-      .from("published_posts")
-      .select(
-        "platform, reach, impressions, engagement_likes, engagement_comments, engagement_shares, engagement_saves, published_at",
-      )
-      .in("post_id", postIds)
       .gte("published_at", startDate.toISOString());
 
-    // FIX: platform filter is now consistent — applied at the same query level as posts
+    // Get published posts with engagement data
+    let query = supabase
+      .from("published_posts")
+      .select(
+        `
+        platform,
+        engagement_likes,
+        engagement_comments,
+        engagement_shares,
+        engagement_saves,
+        impressions,
+        reach,
+        clicks,
+        video_views,
+        published_at,
+        date
+      `,
+      )
+      .in("post_id", posts?.map((p) => p.id) || []);
+
     if (platform && platform !== "all") {
-      engagementQuery = engagementQuery.eq("platform", platform);
+      query = query.eq("platform", platform);
     }
 
-    const { data: engagement } = await engagementQuery;
+    const { data: publishedData, error } = await query;
+
+    if (error) {
+      console.error("Analytics query error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // If no data, return empty response
+    if (!publishedData || publishedData.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: buildEmptyResponse(days),
+      });
+    }
 
     // Aggregate totals
-    const totalReach =
-      engagement?.reduce((sum, e) => sum + (e.reach || 0), 0) ?? 0;
-    const totalLikes =
-      engagement?.reduce((sum, e) => sum + (e.engagement_likes || 0), 0) ?? 0;
-    const totalComments =
-      engagement?.reduce((sum, e) => sum + (e.engagement_comments || 0), 0) ??
-      0;
-    const totalShares =
-      engagement?.reduce((sum, e) => sum + (e.engagement_shares || 0), 0) ?? 0;
-    // FIX: total_saves now actually computed from DB instead of hardcoded 0
-    const totalSaves =
-      engagement?.reduce((sum, e) => sum + (e.engagement_saves || 0), 0) ?? 0;
-    const totalImpressions =
-      engagement?.reduce(
-        (sum, e) => sum + (e.impressions || e.reach || 0),
-        0,
-      ) ?? 0;
+    const totalImpressions = publishedData.reduce(
+      (sum, item) => sum + (item.impressions || 0),
+      0,
+    );
+    const totalReach = publishedData.reduce(
+      (sum, item) => sum + (item.reach || 0),
+      0,
+    );
+    const totalLikes = publishedData.reduce(
+      (sum, item) => sum + (item.engagement_likes || 0),
+      0,
+    );
+    const totalComments = publishedData.reduce(
+      (sum, item) => sum + (item.engagement_comments || 0),
+      0,
+    );
+    const totalShares = publishedData.reduce(
+      (sum, item) => sum + (item.engagement_shares || 0),
+      0,
+    );
+    const totalSaves = publishedData.reduce(
+      (sum, item) => sum + (item.engagement_saves || 0),
+      0,
+    );
+    const totalClicks = publishedData.reduce(
+      (sum, item) => sum + (item.clicks || 0),
+      0,
+    );
+    const totalVideoViews = publishedData.reduce(
+      (sum, item) => sum + (item.video_views || 0),
+      0,
+    );
+
     const totalEngagement = totalLikes + totalComments + totalShares;
 
     // Platform breakdown
     const platformBreakdown: Record<string, any> = {};
-    for (const e of engagement || []) {
-      if (!platformBreakdown[e.platform]) {
-        platformBreakdown[e.platform] = {
+    for (const item of publishedData) {
+      const plat = item.platform;
+      if (!platformBreakdown[plat]) {
+        platformBreakdown[plat] = {
           impressions: 0,
           reach: 0,
           likes: 0,
           comments: 0,
           shares: 0,
-          saves: 0, // ADDED
+          saves: 0,
+          clicks: 0,
+          video_views: 0,
           engagement: 0,
-          posts: 0,
         };
       }
-      const s = platformBreakdown[e.platform];
-      s.posts++;
-      s.reach += e.reach || 0;
-      s.impressions += e.impressions || e.reach || 0;
-      s.likes += e.engagement_likes || 0;
-      s.comments += e.engagement_comments || 0;
-      s.shares += e.engagement_shares || 0;
-      s.saves += e.engagement_saves || 0; // ADDED
+      const s = platformBreakdown[plat];
+      s.impressions += item.impressions || 0;
+      s.reach += item.reach || 0;
+      s.likes += item.engagement_likes || 0;
+      s.comments += item.engagement_comments || 0;
+      s.shares += item.engagement_shares || 0;
+      s.saves += item.engagement_saves || 0;
+      s.clicks += item.clicks || 0;
+      s.video_views += item.video_views || 0;
       s.engagement +=
-        (e.engagement_likes || 0) +
-        (e.engagement_comments || 0) +
-        (e.engagement_shares || 0);
+        (item.engagement_likes || 0) +
+        (item.engagement_comments || 0) +
+        (item.engagement_shares || 0);
     }
 
-    // FIX: build daily stats in a single pass, and populate all metrics (was losing likes data)
-    const dailyMap: Record<
-      string,
-      {
-        date: string;
-        impressions: number;
-        reach: number;
-        likes: number;
-        comments: number;
-        shares: number;
-        engagement: number;
-        posts: number;
-      }
-    > = {};
+    // Count unique posts per platform
+    const uniquePostsPerPlatform: Record<string, Set<string>> = {};
+    // Need to get post_id from published_posts, so adjust query
+    const { data: postsWithIds } = await supabase
+      .from("published_posts")
+      .select("platform, post_id")
+      .in("post_id", posts?.map((p) => p.id) || []);
 
-    // Pre-populate all days so gaps show as zeros
+    for (const item of postsWithIds || []) {
+      if (!uniquePostsPerPlatform[item.platform]) {
+        uniquePostsPerPlatform[item.platform] = new Set();
+      }
+      uniquePostsPerPlatform[item.platform].add(item.post_id);
+    }
+
+    for (const [plat, postSet] of Object.entries(uniquePostsPerPlatform)) {
+      if (platformBreakdown[plat]) {
+        platformBreakdown[plat].posts = postSet.size;
+      }
+    }
+
+    // Daily stats aggregation
+    const dailyMap: Record<string, any> = {};
+
+    // Pre-populate all days
     for (let i = 0; i < days; i++) {
       const date = new Date();
       date.setDate(date.getDate() - i);
@@ -137,63 +173,72 @@ export async function GET(request: NextRequest) {
         likes: 0,
         comments: 0,
         shares: 0,
+        saves: 0,
+        clicks: 0,
         engagement: 0,
         posts: 0,
       };
     }
 
-    for (const e of engagement || []) {
-      const dateStr = e.published_at?.split("T")[0];
+    // Fill daily data
+    for (const item of publishedData) {
+      const dateStr = item.date || item.published_at?.split("T")[0];
       if (dateStr && dailyMap[dateStr]) {
-        dailyMap[dateStr].impressions += e.impressions || e.reach || 0;
-        dailyMap[dateStr].reach += e.reach || 0;
-        dailyMap[dateStr].likes += e.engagement_likes || 0; // FIX: was 0
-        dailyMap[dateStr].comments += e.engagement_comments || 0;
-        dailyMap[dateStr].shares += e.engagement_shares || 0;
+        dailyMap[dateStr].impressions += item.impressions || 0;
+        dailyMap[dateStr].reach += item.reach || 0;
+        dailyMap[dateStr].likes += item.engagement_likes || 0;
+        dailyMap[dateStr].comments += item.engagement_comments || 0;
+        dailyMap[dateStr].shares += item.engagement_shares || 0;
+        dailyMap[dateStr].saves += item.engagement_saves || 0;
+        dailyMap[dateStr].clicks += item.clicks || 0;
         dailyMap[dateStr].engagement +=
-          (e.engagement_likes || 0) +
-          (e.engagement_comments || 0) +
-          (e.engagement_shares || 0);
+          (item.engagement_likes || 0) +
+          (item.engagement_comments || 0) +
+          (item.engagement_shares || 0);
       }
     }
 
-    for (const p of posts || []) {
-      const dateStr = p.published_at?.split("T")[0];
+    // Count daily posts
+    const { data: dailyPosts } = await supabase
+      .from("posts")
+      .select("published_at")
+      .eq("user_id", user.id)
+      .eq("status", "published")
+      .gte("published_at", startDate.toISOString());
+
+    for (const post of dailyPosts || []) {
+      const dateStr = post.published_at?.split("T")[0];
       if (dateStr && dailyMap[dateStr]) {
         dailyMap[dateStr].posts++;
       }
     }
 
-    // Sort ascending by date
+    // Sort daily stats ascending
     const dailyStats = Object.values(dailyMap).sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
 
-    return NextResponse.json(
-      {
-        success: true,
-        data: {
-          total_impressions: totalImpressions,
-          total_reach: totalReach,
-          total_likes: totalLikes,
-          total_comments: totalComments,
-          total_shares: totalShares,
-          total_saves: totalSaves, // FIX: real value
-          total_clicks: 0, // Not tracked at DB level yet — honest zero
-          total_engagement: totalEngagement,
-          total_posts: posts?.length || 0,
-          engagement_rate:
-            totalReach > 0
-              ? ((totalEngagement / totalReach) * 100).toFixed(2)
-              : "0.00",
-          by_platform: platformBreakdown,
-          daily: dailyStats, // FIX: single unified array, all fields populated
-        },
+    return NextResponse.json({
+      success: true,
+      data: {
+        total_impressions: totalImpressions,
+        total_reach: totalReach,
+        total_likes: totalLikes,
+        total_comments: totalComments,
+        total_shares: totalShares,
+        total_saves: totalSaves,
+        total_clicks: totalClicks,
+        total_video_views: totalVideoViews,
+        total_engagement: totalEngagement,
+        total_posts: posts?.length || 0,
+        engagement_rate:
+          totalReach > 0
+            ? ((totalEngagement / totalReach) * 100).toFixed(2)
+            : "0.00",
+        by_platform: platformBreakdown,
+        daily: dailyStats,
       },
-      {
-        headers: { "Cache-Control": "private, max-age=60" }, // ADDED
-      },
-    );
+    });
   } catch (error: any) {
     console.error("Analytics error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -212,6 +257,8 @@ function buildEmptyResponse(days: number) {
       likes: 0,
       comments: 0,
       shares: 0,
+      saves: 0,
+      clicks: 0,
       engagement: 0,
       posts: 0,
     });
@@ -224,6 +271,7 @@ function buildEmptyResponse(days: number) {
     total_shares: 0,
     total_saves: 0,
     total_clicks: 0,
+    total_video_views: 0,
     total_engagement: 0,
     total_posts: 0,
     engagement_rate: "0.00",

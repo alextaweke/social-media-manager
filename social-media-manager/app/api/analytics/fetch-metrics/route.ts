@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     const { daysBack = 30, platform } = await request.json();
 
-    // Get all published posts with their platform data
+    // Get all published posts with their platform_post_id
     let query = supabase
       .from("posts")
       .select(
@@ -28,10 +28,7 @@ export async function POST(request: NextRequest) {
           id,
           platform,
           platform_post_id,
-          last_synced,
-          engagement_likes,
-          engagement_comments,
-          engagement_shares
+          last_synced
         )
       `,
       )
@@ -68,20 +65,13 @@ export async function POST(request: NextRequest) {
     };
 
     for (const post of posts || []) {
-      // Get the published_post entry for this post
       const publishedPost = post.published_posts;
-
-      // Handle both single object and array
       const pp = Array.isArray(publishedPost)
         ? publishedPost[0]
         : publishedPost;
 
       if (!pp || !post.platform_post_id) {
         results.failed++;
-        results.details.push({
-          postId: post.id,
-          error: "Missing platform_post_id or published_post record",
-        });
         continue;
       }
 
@@ -99,61 +89,43 @@ export async function POST(request: NextRequest) {
       try {
         let metrics: any = null;
 
-        // Use post.platform_post_id (stored in posts table) NOT pp.platform_post_id
-        const platformPostId = post.platform_post_id;
-
         switch (pp.platform) {
           case "facebook":
-            let facebookPostId = post.platform_post_id;
-
-            // Check if it's a JSON string and extract the facebook value
-            if (
-              typeof facebookPostId === "string" &&
-              facebookPostId.startsWith("{")
-            ) {
-              try {
-                const parsed = JSON.parse(facebookPostId);
-                facebookPostId = parsed.facebook; // Extract just the Facebook post ID
-              } catch (e) {
-                // If parsing fails, use the original
-              }
-            }
-
             metrics = await AnalyticsService.fetchFacebookPostData(
               account.access_token,
-              facebookPostId, // ← Now it's just "1143465745515480_122099366199355696"
+              post.platform_post_id,
             );
             break;
           case "instagram":
             metrics = await AnalyticsService.fetchInstagramPostData(
               account.access_token,
-              platformPostId,
+              post.platform_post_id,
             );
             break;
           case "twitter":
             metrics = await AnalyticsService.fetchTwitterPostData(
               account.access_token,
-              platformPostId,
+              post.platform_post_id,
             );
             break;
           case "linkedin":
             metrics = await AnalyticsService.fetchLinkedInPostData(
               account.access_token,
-              platformPostId,
+              post.platform_post_id,
             );
             break;
           case "telegram":
             metrics = await AnalyticsService.fetchTelegramPostData(
               account.access_token,
               account.platform_user_id,
-              platformPostId,
+              post.platform_post_id,
             );
             break;
         }
 
         if (metrics) {
           // Update published_posts with fresh metrics
-          const { error: updateError } = await supabase
+          await supabase
             .from("published_posts")
             .update({
               engagement_likes: metrics.likes,
@@ -165,41 +137,31 @@ export async function POST(request: NextRequest) {
               clicks: metrics.clicks,
               video_views: metrics.video_views,
               video_avg_watch_time: metrics.video_avg_watch_time,
+              profile_views: metrics.profile_views,
+              follower_gain: metrics.follower_gain,
               last_synced: new Date().toISOString(),
               raw_response: metrics.raw_response,
             })
             .eq("id", pp.id);
 
-          if (updateError) {
-            console.error(`Update error for post ${post.id}:`, updateError);
-            results.failed++;
-            results.details.push({
-              postId: post.id,
-              platform: pp.platform,
-              error: updateError.message,
-            });
-          } else {
-            results.synced++;
-            results.details.push({
-              postId: post.id,
-              platform: pp.platform,
-              metrics: {
-                likes: metrics.likes,
-                comments: metrics.comments,
-                shares: metrics.shares,
-                impressions: metrics.impressions,
-                reach: metrics.reach,
-                clicks: metrics.clicks,
-                video_views: metrics.video_views,
-              },
-            });
-          }
+          results.synced++;
+          results.details.push({
+            postId: post.id,
+            platform: pp.platform,
+            metrics: {
+              likes: metrics.likes,
+              comments: metrics.comments,
+              shares: metrics.shares,
+              impressions: metrics.impressions,
+              reach: metrics.reach,
+            },
+          });
         } else {
           results.failed++;
           results.details.push({
             postId: post.id,
             platform: pp.platform,
-            error: "Failed to fetch metrics from platform API",
+            error: "Failed to fetch metrics",
           });
         }
       } catch (error: any) {
