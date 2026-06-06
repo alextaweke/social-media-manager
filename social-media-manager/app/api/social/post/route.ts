@@ -187,27 +187,23 @@ export async function POST(request: Request) {
         platformPostIds[platform] = result.id;
 
         // Record published post
-        const { error: insertError } = await supabase
+        const { data, error: insertError } = await supabase
           .from("published_posts")
           .insert({
             post_id: post.id,
             platform,
             platform_post_id: result.id,
-            platform_post_url: result.url,
             published_at: new Date(),
             engagement_likes: 0,
             engagement_comments: 0,
             engagement_shares: 0,
             impressions: 0,
             reach: 0,
-          });
+          })
+          .select();
 
-        if (insertError) {
-          console.error(
-            `Error recording published post for ${platform}:`,
-            insertError,
-          );
-        }
+        console.log("published_posts result:", data);
+        console.log("published_posts error:", insertError);
 
         results.push({
           platform,
