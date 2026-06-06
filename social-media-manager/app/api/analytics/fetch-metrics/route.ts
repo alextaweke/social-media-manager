@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     const { daysBack = 30, platform } = await request.json();
 
-    // Get all published posts
+    // Get all published posts with their platform data
     let query = supabase
       .from("posts")
       .select(
@@ -24,11 +24,14 @@ export async function POST(request: NextRequest) {
         id,
         platform_post_id,
         published_at,
-        published_posts!left (
+        published_posts!inner (
           id,
           platform,
           platform_post_id,
-          last_synced
+          last_synced,
+          engagement_likes,
+          engagement_comments,
+          engagement_shares
         )
       `,
       )
@@ -65,18 +68,29 @@ export async function POST(request: NextRequest) {
     };
 
     for (const post of posts || []) {
-      const publishedPost = post.published_posts?.[0];
-      if (!publishedPost || !post.platform_post_id) {
+      // Get the published_post entry for this post
+      const publishedPost = post.published_posts;
+
+      // Handle both single object and array
+      const pp = Array.isArray(publishedPost)
+        ? publishedPost[0]
+        : publishedPost;
+
+      if (!pp || !post.platform_post_id) {
         results.failed++;
+        results.details.push({
+          postId: post.id,
+          error: "Missing platform_post_id or published_post record",
+        });
         continue;
       }
 
-      const account = accountMap.get(publishedPost.platform);
+      const account = accountMap.get(pp.platform);
       if (!account) {
         results.failed++;
         results.details.push({
           postId: post.id,
-          platform: publishedPost.platform,
+          platform: pp.platform,
           error: "No connected account found",
         });
         continue;
@@ -85,43 +99,46 @@ export async function POST(request: NextRequest) {
       try {
         let metrics: any = null;
 
-        switch (publishedPost.platform) {
+        // Use post.platform_post_id (stored in posts table) NOT pp.platform_post_id
+        const platformPostId = post.platform_post_id;
+
+        switch (pp.platform) {
           case "facebook":
             metrics = await AnalyticsService.fetchFacebookPostData(
               account.access_token,
-              post.platform_post_id,
+              platformPostId, // ✅ Fixed: use post.platform_post_id
             );
             break;
           case "instagram":
             metrics = await AnalyticsService.fetchInstagramPostData(
               account.access_token,
-              post.platform_post_id,
+              platformPostId,
             );
             break;
           case "twitter":
             metrics = await AnalyticsService.fetchTwitterPostData(
               account.access_token,
-              post.platform_post_id,
+              platformPostId,
             );
             break;
           case "linkedin":
             metrics = await AnalyticsService.fetchLinkedInPostData(
               account.access_token,
-              post.platform_post_id,
+              platformPostId,
             );
             break;
           case "telegram":
             metrics = await AnalyticsService.fetchTelegramPostData(
               account.access_token,
               account.platform_user_id,
-              post.platform_post_id,
+              platformPostId,
             );
             break;
         }
 
         if (metrics) {
           // Update published_posts with fresh metrics
-          await supabase
+          const { error: updateError } = await supabase
             .from("published_posts")
             .update({
               engagement_likes: metrics.likes,
@@ -132,35 +149,49 @@ export async function POST(request: NextRequest) {
               reach: metrics.reach,
               clicks: metrics.clicks,
               video_views: metrics.video_views,
-              last_synced: new Date(),
+              video_avg_watch_time: metrics.video_avg_watch_time,
+              last_synced: new Date().toISOString(),
+              raw_response: metrics.raw_response,
             })
-            .eq("id", publishedPost.id);
+            .eq("id", pp.id);
 
-          results.synced++;
-          results.details.push({
-            postId: post.id,
-            platform: publishedPost.platform,
-            metrics: {
-              likes: metrics.likes,
-              comments: metrics.comments,
-              shares: metrics.shares,
-              impressions: metrics.impressions,
-              reach: metrics.reach,
-            },
-          });
+          if (updateError) {
+            console.error(`Update error for post ${post.id}:`, updateError);
+            results.failed++;
+            results.details.push({
+              postId: post.id,
+              platform: pp.platform,
+              error: updateError.message,
+            });
+          } else {
+            results.synced++;
+            results.details.push({
+              postId: post.id,
+              platform: pp.platform,
+              metrics: {
+                likes: metrics.likes,
+                comments: metrics.comments,
+                shares: metrics.shares,
+                impressions: metrics.impressions,
+                reach: metrics.reach,
+                clicks: metrics.clicks,
+                video_views: metrics.video_views,
+              },
+            });
+          }
         } else {
           results.failed++;
           results.details.push({
             postId: post.id,
-            platform: publishedPost.platform,
-            error: "Failed to fetch metrics",
+            platform: pp.platform,
+            error: "Failed to fetch metrics from platform API",
           });
         }
       } catch (error: any) {
         results.failed++;
         results.details.push({
           postId: post.id,
-          platform: publishedPost.platform,
+          platform: pp.platform,
           error: error.message,
         });
       }
