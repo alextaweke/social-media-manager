@@ -104,9 +104,24 @@ export async function POST(request: NextRequest) {
 
         switch (pp.platform) {
           case "facebook":
+            let facebookPostId = post.platform_post_id;
+
+            // Check if it's a JSON string and extract the facebook value
+            if (
+              typeof facebookPostId === "string" &&
+              facebookPostId.startsWith("{")
+            ) {
+              try {
+                const parsed = JSON.parse(facebookPostId);
+                facebookPostId = parsed.facebook; // Extract just the Facebook post ID
+              } catch (e) {
+                // If parsing fails, use the original
+              }
+            }
+
             metrics = await AnalyticsService.fetchFacebookPostData(
               account.access_token,
-              platformPostId, // ✅ Fixed: use post.platform_post_id
+              facebookPostId, // ← Now it's just "1143465745515480_122099366199355696"
             );
             break;
           case "instagram":
