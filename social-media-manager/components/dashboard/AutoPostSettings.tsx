@@ -45,7 +45,12 @@ interface ScheduledPost {
 const availablePlatforms = [
   { id: "twitter", name: "Twitter", icon: FaTwitter, color: "bg-blue-400" },
   { id: "facebook", name: "Facebook", icon: FaFacebook, color: "bg-blue-600" },
-  { id: "instagram", name: "Instagram", icon: FaInstagram, color: "bg-pink-500" },
+  {
+    id: "instagram",
+    name: "Instagram",
+    icon: FaInstagram,
+    color: "bg-pink-500",
+  },
   { id: "telegram", name: "Telegram", icon: Bot, color: "bg-blue-500" },
 ];
 
@@ -203,7 +208,7 @@ export default function AutoPostSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
             <div>
               <Label className="font-semibold">Enable Auto-Posting</Label>
               <p className="text-sm text-gray-500">
@@ -259,7 +264,7 @@ export default function AutoPostSettings() {
                         className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all ${
                           selectedPlatforms.includes(platform.id)
                             ? `${platform.color} scale-105 text-white shadow-md`
-                            : "bg-gray-100 hover:bg-gray-200 dark:bg-gray-800"
+                            : "bg-muted hover:bg-muted/80 text-foreground"
                         }`}
                       >
                         <Icon className="h-4 w-4" />
@@ -282,7 +287,7 @@ export default function AutoPostSettings() {
                       className={`cursor-pointer px-3 py-1 ${
                         selectedTopics.includes(topic)
                           ? "bg-gradient-to-r from-blue-600 to-purple-600"
-                          : "hover:bg-gray-100"
+                          : "hover:bg-muted"
                       }`}
                       onClick={() => toggleTopic(topic)}
                     >

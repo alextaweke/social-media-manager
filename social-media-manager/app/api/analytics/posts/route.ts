@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
   `,
       )
       .eq("user_id", user.id)
-      .eq("status", "published")
+      .in("status", ["published", "partially_published"])
       .order("published_at", { ascending: false })
       .limit(limit);
 

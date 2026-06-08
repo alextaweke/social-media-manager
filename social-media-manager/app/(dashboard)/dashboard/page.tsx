@@ -58,6 +58,7 @@ import AIEnhancementTool from "@/components/dashboard/AIEnhancementTool";
 import AIImageGenerator from "@/components/dashboard/AIImageGenerator";
 import AutoPostSettings from "@/components/dashboard/AutoPostSettings";
 import PostManager from "@/components/dashboard/PostManager";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 export default function DashboardPage() {
   const { user, signOut } = useAuth();
   const [greeting, setGreeting] = useState("");
@@ -65,10 +66,11 @@ export default function DashboardPage() {
   const [connectedAccounts, setConnectedAccounts] = useState<any[]>([]);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [stats, setStats] = useState({
-    totalPosts: 156,
+    totalPosts: 1,
     engagement: 28400,
     followers: 12580,
     reach: 89200,
+    clicks: 5600,
   });
 
   useEffect(() => {
@@ -103,8 +105,9 @@ export default function DashboardPage() {
         setStats({
           totalPosts: data.data.total_posts || 0,
           engagement: data.data.total_engagement || 0,
-          followers: 12580, // This would come from actual API
+          followers: data.data.total_followers || 0, // This would come from actual API
           reach: data.data.total_reach || 0,
+          clicks: data.data.total_clicks || 0,
         });
       }
     } catch (error) {
@@ -131,7 +134,7 @@ export default function DashboardPage() {
   const analyticsData = [
     {
       label: "Engagement Rate",
-      value: "4.8%",
+      value: `${((stats.engagement / stats.reach) * 100).toFixed(2)}%`,
       change: "+12%",
       icon: Heart,
       color: "text-red-500",
@@ -145,14 +148,14 @@ export default function DashboardPage() {
     },
     {
       label: "Click-through Rate",
-      value: "3.2%",
+      value: `${((stats.clicks / stats.reach) * 100).toFixed(2)}%`,
       change: "+5%",
       icon: Target,
       color: "text-green-500",
     },
     {
       label: "Total Posts",
-      value: stats.totalPosts.toString(),
+      value: stats.totalPosts.toLocaleString(),
       change: "+18%",
       icon: ThumbsUp,
       color: "text-purple-500",
@@ -176,7 +179,9 @@ export default function DashboardPage() {
                 SocialHub
               </h1>
             </div>
-
+            <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800">
+              <ThemeToggle />
+            </div>
             <div className="flex items-center space-x-4">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -235,10 +240,7 @@ export default function DashboardPage() {
               <PlusCircle className="h-4 w-4" />
               Create
             </TabsTrigger>
-            <TabsTrigger value="calendar" className="gap-2">
-              <Calendar className="h-4 w-4" />
-              Calendar
-            </TabsTrigger>
+
             <TabsTrigger value="media" className="gap-2">
               <ImageIcon className="h-4 w-4" />
               Media

@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       .from("posts")
       .select("id, published_at")
       .eq("user_id", user.id)
-      .eq("status", "published")
+      .in("status", ["published", "partially_published"])
       .gte("published_at", startDate.toISOString());
 
     // Get published posts with engagement data

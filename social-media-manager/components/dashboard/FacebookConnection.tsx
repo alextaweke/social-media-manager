@@ -1,10 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -13,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, CheckCircle, AlertCircle, Info } from "lucide-react";
+import { Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { FaFacebook } from "react-icons/fa";
 
@@ -24,193 +21,85 @@ interface FacebookConnectionProps {
 export default function FacebookConnection({
   onConnected,
 }: FacebookConnectionProps) {
-  const [pageId, setPageId] = useState("");
-  const [accessToken, setAccessToken] = useState("");
-  const [pageName, setPageName] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
-  const [useEnvCredentials, setUseEnvCredentials] = useState(false);
 
-  const connectFacebook = async () => {
-    // Get credentials
-    let finalPageId = pageId;
-    let finalAccessToken = accessToken;
-    const finalPageName = pageName;
+  const handleFacebookOAuth = () => {
+    setIsConnecting(true);
 
-    if (useEnvCredentials) {
-      finalPageId = process.env.NEXT_PUBLIC_FACEBOOK_PAGE_ID || "";
-      finalAccessToken =
-        process.env.NEXT_PUBLIC_FACEBOOK_PAGE_ACCESS_TOKEN || "";
+    const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID;
 
-      if (!finalPageId || !finalAccessToken) {
-        toast.error(
-          "Environment variables are not set. Please check your .env.local file",
-        );
-        return;
-      }
-    }
-
-    if (!finalPageId || !finalAccessToken) {
-      toast.error("Please enter both Page ID and Access Token");
+    if (!appId) {
+      toast.error(
+        "Missing NEXT_PUBLIC_FACEBOOK_APP_ID in your environment variables.",
+      );
+      setIsConnecting(false);
       return;
     }
 
-    setIsConnecting(true);
+    // Your path should target the dynamic callback router you wrote earlier
+    const redirectUri = encodeURIComponent(
+      `${window.location.origin}/api/social/callback/facebook`,
+    );
 
-    try {
-      const response = await fetch("/api/social/connect/facebook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pageId: finalPageId.trim(),
-          pageName: finalPageName || undefined,
-          accessToken: finalAccessToken.trim(),
-        }),
-      });
+    const scopes = [
+      "pages_manage_posts",
+      "pages_read_engagement",
+      "pages_show_list",
+    ].join(",");
+    const state = "secure_random_state_string";
 
-      const data = await response.json();
+    // FIX: Added the proper endpoint path along with clean query string markers (? and client_id=)
+    const oauthUrl = `https://facebook.com{appId}&redirect_uri=${redirectUri}&scope=${scopes}&state=${state}&response_type=code`;
 
-      if (!response.ok) {
-        throw new Error(data.error || "Connection failed");
-      }
+    const width = 600;
+    const height = 700;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
 
-      if (data.success) {
-        const pageNameConnected = data.page?.name || "Facebook page";
-        toast.success(`${pageNameConnected} connected successfully!`);
-        setPageId("");
-        setAccessToken("");
-        setPageName("");
-        if (onConnected) {
-          onConnected();
-        }
-        setTimeout(() => window.location.reload(), 1500);
-      } else {
-        throw new Error(data.error);
-      }
-    } catch (error: any) {
-      console.error("Connection error:", error);
-      toast.error(error.message || "Failed to connect Facebook page");
-    } finally {
-      setIsConnecting(false);
-    }
+    const popup = window.open(
+      oauthUrl,
+      "Facebook Login",
+      `width=${width},height=${height},top=${top},left=${left},resizable=yes,scrollbars=yes`,
+    );
   };
 
   return (
-    <Card>
+    <Card className="w-full max-w-md mx-auto">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FaFacebook className="h-5 w-5 text-blue-600" />
-          Connect Facebook Page
+        <CardTitle className="flex items-center gap-2 text-xl">
+          <FaFacebook className="h-6 w-6 text-[#1877F2]" />
+          Connect Facebook Account
         </CardTitle>
         <CardDescription>
-          Connect your Facebook page to post updates directly
+          Link your Facebook business page instantly to start publishing.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Alert className="bg-blue-50 dark:bg-blue-950 border-blue-200">
           <Info className="h-4 w-4 text-blue-600" />
           <AlertDescription className="text-xs text-blue-800 dark:text-blue-200">
-            You need a Facebook Page (not personal profile) and a Page Access
-            Token.
+            Make sure your personal account has <strong>Admin</strong> access to
+            the Facebook Business Page you want to connect.
           </AlertDescription>
         </Alert>
 
-        <div className="flex items-center space-x-2">
-          <input
-            type="checkbox"
-            id="useEnvFacebook"
-            checked={useEnvCredentials}
-            onChange={(e) => setUseEnvCredentials(e.target.checked)}
-            className="rounded border-gray-300"
-          />
-          <Label htmlFor="useEnvFacebook" className="text-sm cursor-pointer">
-            Use credentials from environment variables
-          </Label>
-        </div>
-
-        {!useEnvCredentials && (
-          <>
-            <div className="space-y-2">
-              <Label>Facebook Page ID *</Label>
-              <Input
-                placeholder="Enter your Facebook Page ID"
-                value={pageId}
-                onChange={(e) => setPageId(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">
-                Find your Page ID in your Facebook Page Settings → Page Info
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Page Name (Optional)</Label>
-              <Input
-                placeholder="Enter page name (optional)"
-                value={pageName}
-                onChange={(e) => setPageName(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Page Access Token *</Label>
-              <Input
-                type="password"
-                placeholder="Enter your Facebook Page Access Token"
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">
-                Generate a Page Access Token from Facebook Developers → Tools →
-                Graph API Explorer
-              </p>
-            </div>
-          </>
-        )}
-
-        {useEnvCredentials && (
-          <Alert className="bg-green-50 dark:bg-green-950 border-green-200">
-            <CheckCircle className="h-4 w-4 text-green-600" />
-            <AlertDescription className="text-xs text-green-800 dark:text-green-200">
-              Using Facebook credentials from environment variables.
-            </AlertDescription>
-          </Alert>
-        )}
-
         <Button
-          onClick={connectFacebook}
+          onClick={handleFacebookOAuth}
           disabled={isConnecting}
-          className="w-full bg-blue-600 hover:bg-blue-700"
+          className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-medium py-6 text-base shadow-sm"
         >
           {isConnecting ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           ) : (
-            <FaFacebook className="mr-2 h-4 w-4" />
+            <FaFacebook className="mr-2 h-5 w-5" />
           )}
-          Connect Facebook Page
+          {isConnecting ? "Connecting Account..." : "Sign in with Facebook"}
         </Button>
 
-        <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4">
-          <h4 className="text-sm font-semibold mb-2">
-            📝 How to get Facebook Page Access Token:
-          </h4>
-          <ol className="text-xs space-y-1 text-gray-600 dark:text-gray-400 list-decimal list-inside">
-            <li>
-              Go to{" "}
-              <a
-                href="https://developers.facebook.com/tools/explorer/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500"
-              >
-                Graph API Explorer
-              </a>
-            </li>
-            <li>Select your app from the dropdown</li>
-            <li>Click Generate Access Token → Get Page Access Token</li>
-            <li>Select your page from the list</li>
-            <li>Copy the generated access token</li>
-            <li>Page ID is in the same response or in Page Settings</li>
-          </ol>
-        </div>
+        <p className="text-[11px] text-center text-gray-400 dark:text-gray-500">
+          Your credentials remain safe. We never see or store your personal
+          Facebook password.
+        </p>
       </CardContent>
     </Card>
   );
