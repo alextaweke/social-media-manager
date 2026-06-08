@@ -38,7 +38,7 @@ export default function FacebookConnection({
 
     // Your path should target the dynamic callback router you wrote earlier
     const redirectUri = encodeURIComponent(
-      `${window.location.origin}/api/auth/callback`,
+      `${window.location.origin}/api/social/callback/facebook`,
     );
 
     const scopes = [

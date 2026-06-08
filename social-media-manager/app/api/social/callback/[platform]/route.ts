@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -7,28 +6,17 @@ type RouteContext = {
   params: Promise<{ platform: string }>;
 };
 
-// Helper HTML builder to post a message back to the frontend popup window opener
-const sendPopupMessageHTML = (msgObject: object) => `
-  <html>
-    <body>
-      <script>
-        window.opener.postMessage(${JSON.stringify(msgObject)}, window.location.origin);
-      </script>
-    </body>
-  </html>
-`;
-
-export async function GET(request: NextRequest, context: RouteContext) {
+export async function GET(
+  request: NextRequest,
+  context: RouteContext, // Replaced destructured params with typed context
+) {
+  // Await the params before extracting properties
   const { platform } = await context.params;
 
   // Telegram uses a different flow (no OAuth callback)
   if (platform === "telegram") {
-    return new NextResponse(
-      sendPopupMessageHTML({
-        type: "FACEBOOK_AUTH_ERROR",
-        error: "Telegram requires a bot setup flow.",
-      }),
-      { headers: { "Content-Type": "text/html" } },
+    return NextResponse.redirect(
+      new URL("/dashboard?error=telegram_requires_bot", request.url),
     );
   }
 
@@ -36,42 +24,28 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const code = searchParams.get("code");
   const state = searchParams.get("state");
 
-  // Optional: Verify state if you are using cookies for security validation
+  // Verify state
   const storedState = request.cookies.get(`oauth_state_${platform}`)?.value;
-  if (state && storedState && state !== storedState) {
-    return new NextResponse(
-      sendPopupMessageHTML({
-        type: "FACEBOOK_AUTH_ERROR",
-        error: "Session expired or invalid security state.",
-      }),
-      { headers: { "Content-Type": "text/html" } },
+  if (state !== storedState) {
+    return NextResponse.redirect(
+      new URL("/dashboard?error=invalid_state", request.url),
     );
   }
 
   if (!code) {
-    return new NextResponse(
-      sendPopupMessageHTML({
-        type: "FACEBOOK_AUTH_ERROR",
-        error: "Authorization code not provided by platform.",
-      }),
-      { headers: { "Content-Type": "text/html" } },
+    return NextResponse.redirect(
+      new URL("/dashboard?error=no_code", request.url),
     );
   }
 
   try {
+    // Exchange code for access token based on platform
     let accessToken: string;
     let refreshToken: string | undefined;
     let userId: string;
     let username: string;
 
     switch (platform) {
-      case "facebook":
-        // Facebook requires a special 3-step handshake to safely publish to Pages
-        const facebookData = await exchangeFacebookToken(code);
-        accessToken = facebookData.page_access_token; // The permanent page token
-        userId = facebookData.page_id; // The Page ID (not user ID)
-        username = facebookData.page_name; // The corporate Page name
-        break;
       case "instagram":
         const instagramData = await exchangeInstagramToken(code);
         accessToken = instagramData.access_token;
@@ -91,17 +65,23 @@ export async function GET(request: NextRequest, context: RouteContext) {
         userId = linkedinData.user_id;
         username = linkedinData.username;
         break;
+      case "facebook":
+        const facebookData = await exchangeFacebookToken(code);
+        accessToken = facebookData.access_token;
+        userId = facebookData.user_id;
+        username = facebookData.username;
+        break;
       default:
         throw new Error("Unsupported platform");
     }
 
-    // Save token credentials into your Supabase database table securely
+    // Save to database
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) throw new Error("User session not found");
+    if (!user) throw new Error("User not found");
 
     await supabase.from("social_accounts").upsert(
       {
@@ -111,10 +91,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         platform_username: username,
         access_token: accessToken,
         refresh_token: refreshToken,
-        expires_at:
-          platform === "facebook"
-            ? null
-            : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000), // Page tokens don't expire
+        expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000), // 60 days
         is_active: true,
         updated_at: new Date(),
       },
@@ -123,26 +100,19 @@ export async function GET(request: NextRequest, context: RouteContext) {
       },
     );
 
-    // Instead of redirecting the whole window, output HTML that signals the frontend popup listener
-    return new NextResponse(
-      sendPopupMessageHTML({ type: "FACEBOOK_AUTH_SUCCESS" }),
-      { headers: { "Content-Type": "text/html" } },
+    return NextResponse.redirect(
+      new URL("/dashboard?connected=true", request.url),
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error("OAuth callback error:", error);
-    return new NextResponse(
-      sendPopupMessageHTML({
-        type: "FACEBOOK_AUTH_ERROR",
-        error: error.message || "Connection failed",
-      }),
-      { headers: { "Content-Type": "text/html" } },
+    return NextResponse.redirect(
+      new URL("/dashboard?error=connection_failed", request.url),
     );
   }
 }
 
-// Rewritten Facebook Exchange to pull structural Page Data instead of User account nodes
+// Add Facebook exchange function
 async function exchangeFacebookToken(code: string) {
-  // Step 1: Exchange code for short-lived user access token
   const tokenResponse = await fetch(
     "https://graph.facebook.com/v25.0/oauth/access_token",
     {
@@ -158,60 +128,35 @@ async function exchangeFacebookToken(code: string) {
   );
 
   const tokenData = await tokenResponse.json();
-  if (!tokenResponse.ok)
-    throw new Error(
-      tokenData.error?.message || "Failed to exchange authorization code.",
-    );
-
-  // Step 2: Upgrade short-lived token to an extended long-lived user token (lasts 60 days)
-  const extendResponse = await fetch(
-    "https://graph.facebook.com/v25.0/oauth/access_token",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "fb_exchange_token",
-        client_id: process.env.FACEBOOK_CLIENT_ID!,
-        client_secret: process.env.FACEBOOK_CLIENT_SECRET!,
-        fb_exchange_token: tokenData.access_token,
-      }),
-    },
-  );
-
-  const extendData = await extendResponse.json();
-  if (!extendResponse.ok)
-    throw new Error(
-      extendData.error?.message || "Failed to extend user access token.",
-    );
-
-  // Step 3: Use the long-lived user token to fetch their Pages and their corresponding Page Tokens (never expire)
-  const pagesResponse = await fetch(
-    `https://facebook.com{extendData.access_token}`,
-  );
-  const pagesData = await pagesResponse.json();
-  if (!pagesResponse.ok)
-    throw new Error(
-      pagesData.error?.message ||
-        "Failed to retrieve associated Facebook Pages.",
-    );
-
-  if (!pagesData.data || pagesData.data.length === 0) {
-    throw new Error(
-      "No Facebook business pages found linked to this personal account.",
-    );
+  if (!tokenResponse.ok) {
+    throw new Error(tokenData.error?.message);
   }
 
-  // Pick the first page the user owns.
-  const targetPage = pagesData.data[0];
+  // IMPORTANT: Get pages (not /me)
+  const pagesResponse = await fetch(
+    `https://graph.facebook.com/v25.0/me/accounts?access_token=${tokenData.access_token}`,
+  );
+
+  const pagesData = await pagesResponse.json();
+
+  if (!pagesResponse.ok) {
+    throw new Error(pagesData.error?.message);
+  }
+
+  const page = pagesData.data?.[0];
+
+  if (!page) {
+    throw new Error("No Facebook pages found");
+  }
 
   return {
-    page_access_token: targetPage.access_token, // <--- This token does not expire
-    page_id: targetPage.id, // <--- Use the page ID to publish posts
-    page_name: targetPage.name, // <--- Business name (e.g. "My Coffee Shop")
+    access_token: page.access_token,
+    user_id: page.id,
+    username: page.name,
   };
 }
 
-// Keep your existing Instagram, Twitter, and LinkedIn functions unaltered below...
+// Your existing exchange functions...
 async function exchangeInstagramToken(code: string) {
   const response = await fetch("https://api.instagram.com/oauth/access_token", {
     method: "POST",
@@ -224,6 +169,7 @@ async function exchangeInstagramToken(code: string) {
       code,
     }),
   });
+
   const data = await response.json();
   if (!response.ok) throw new Error(data.error_message);
   return data;
@@ -242,12 +188,16 @@ async function exchangeTwitterToken(code: string) {
       redirect_uri: `${process.env.NEXT_PUBLIC_SITE_URL}/api/social/callback/twitter`,
     }),
   });
+
   const data = await response.json();
   if (!response.ok) throw new Error(data.error_description);
+
+  // Get user info from Twitter
   const userResponse = await fetch("https://api.twitter.com/2/users/me", {
     headers: { Authorization: `Bearer ${data.access_token}` },
   });
   const userData = await userResponse.json();
+
   return {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
@@ -271,12 +221,16 @@ async function exchangeLinkedinToken(code: string) {
       }),
     },
   );
+
   const data = await response.json();
   if (!response.ok) throw new Error(data.error_description);
+
+  // Get user profile
   const profileResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
     headers: { Authorization: `Bearer ${data.access_token}` },
   });
   const profile = await profileResponse.json();
+
   return {
     access_token: data.access_token,
     user_id: profile.sub,
