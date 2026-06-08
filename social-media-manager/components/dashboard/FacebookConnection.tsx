@@ -38,7 +38,7 @@ export default function FacebookConnection({
 
     // Your path should target the dynamic callback router you wrote earlier
     const redirectUri = encodeURIComponent(
-      `${window.location.origin}/api/social/callback/facebook`,
+      `${window.location.origin}/api/auth/callback`,
     );
 
     const scopes = [
@@ -46,10 +46,16 @@ export default function FacebookConnection({
       "pages_read_engagement",
       "pages_show_list",
     ].join(",");
-    const state = "secure_random_state_string";
 
-    // FIX: Added the proper endpoint path along with clean query string markers (? and client_id=)
-    const oauthUrl = `https://facebook.com{appId}&redirect_uri=${redirectUri}&scope=${scopes}&state=${state}&response_type=code`;
+    const state = crypto.randomUUID();
+
+    const oauthUrl =
+      `https://www.facebook.com/v25.0/dialog/oauth` +
+      `?client_id=${appId}` +
+      `&redirect_uri=${redirectUri}` +
+      `&scope=${scopes}` +
+      `&state=${state}` +
+      `&response_type=code`;
 
     const width = 600;
     const height = 700;
