@@ -1,29 +1,31 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
+// Define the Next.js 15 context type where params is a Promise
 type RouteContext = {
   params: Promise<{ platform: string }>;
 };
 
-export async function GET(request: NextRequest, context: RouteContext) {
+export async function GET(
+  request: NextRequest,
+  context: RouteContext, // Replaced destructured params with typed context
+) {
+  // Await the params before extracting properties
   const { platform } = await context.params;
 
-  // Telegram special case
+  // Telegram uses a different flow (no OAuth callback)
   if (platform === "telegram") {
     return NextResponse.redirect(
       new URL("/dashboard?error=telegram_requires_bot", request.url),
     );
   }
 
-  const supabase = await createClient(); // ✅ FIX: MUST be first
-
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
 
+  // Verify state
   const storedState = request.cookies.get(`oauth_state_${platform}`)?.value;
-
   if (state !== storedState) {
     return NextResponse.redirect(
       new URL("/dashboard?error=invalid_state", request.url),
@@ -37,73 +39,50 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error("User not found");
-    }
-
-    let accessToken = "";
+    // Exchange code for access token based on platform
+    let accessToken: string;
     let refreshToken: string | undefined;
-    let userId = "";
-    let username = "";
+    let userId: string;
+    let username: string;
 
     switch (platform) {
-      case "instagram": {
-        const data = await exchangeInstagramToken(code);
-
-        accessToken = data.access_token;
-        userId = data.user_id;
-        username = data.username;
+      case "instagram":
+        const instagramData = await exchangeInstagramToken(code);
+        accessToken = instagramData.access_token;
+        userId = instagramData.user_id;
+        username = instagramData.username;
         break;
-      }
-
-      case "twitter": {
-        const data = await exchangeTwitterToken(code);
-
-        accessToken = data.access_token;
-        refreshToken = data.refresh_token;
-        userId = data.user_id;
-        username = data.username;
+      case "twitter":
+        const twitterData = await exchangeTwitterToken(code);
+        accessToken = twitterData.access_token;
+        refreshToken = twitterData.refresh_token;
+        userId = twitterData.user_id;
+        username = twitterData.username;
         break;
-      }
-
-      case "linkedin": {
-        const data = await exchangeLinkedinToken(code);
-
-        accessToken = data.access_token;
-        userId = data.user_id;
-        username = data.username;
+      case "linkedin":
+        const linkedinData = await exchangeLinkedinToken(code);
+        accessToken = linkedinData.access_token;
+        userId = linkedinData.user_id;
+        username = linkedinData.username;
         break;
-      }
-
-      case "facebook": {
-        const fb = await exchangeFacebookToken(code);
-
-        // ✅ Save ALL pages separately (IMPORTANT)
-        await supabase.from("facebook_pages").upsert(
-          fb.pages.map((p: any) => ({
-            user_id: user.id,
-            page_id: p.id,
-            page_name: p.name,
-            page_access_token: p.access_token,
-          })),
-        );
-
-        // store generic account reference
-        accessToken = fb.user_token;
-        userId = "facebook";
-        username = "facebook";
+      case "facebook":
+        const facebookData = await exchangeFacebookToken(code);
+        accessToken = facebookData.access_token;
+        userId = facebookData.user_id;
+        username = facebookData.username;
         break;
-      }
-
       default:
         throw new Error("Unsupported platform");
     }
 
-    // Save unified account record
+    // Save to database
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) throw new Error("User not found");
+
     await supabase.from("social_accounts").upsert(
       {
         user_id: user.id,
@@ -111,9 +90,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
         platform_user_id: userId,
         platform_username: username,
         access_token: accessToken,
-        refresh_token: refreshToken ?? null,
+        refresh_token: refreshToken,
+        expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000), // 60 days
         is_active: true,
-        updated_at: new Date().toISOString(),
+        updated_at: new Date(),
       },
       {
         onConflict: "user_id,platform",
@@ -125,7 +105,6 @@ export async function GET(request: NextRequest, context: RouteContext) {
     );
   } catch (error) {
     console.error("OAuth callback error:", error);
-
     return NextResponse.redirect(
       new URL("/dashboard?error=connection_failed", request.url),
     );
@@ -134,49 +113,49 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
 // Add Facebook exchange function
 async function exchangeFacebookToken(code: string) {
-  const url =
-    `https://graph.facebook.com/v25.0/oauth/access_token?` +
-    new URLSearchParams({
-      client_id: process.env.FACEBOOK_CLIENT_ID!,
-      client_secret: process.env.FACEBOOK_CLIENT_SECRET!,
-      redirect_uri: `${process.env.NEXT_PUBLIC_SITE_URL}/api/social/callback/facebook`,
-      code,
-    });
+  const tokenResponse = await fetch(
+    "https://graph.facebook.com/v25.0/oauth/access_token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.FACEBOOK_CLIENT_ID!,
+        client_secret: process.env.FACEBOOK_CLIENT_SECRET!,
+        redirect_uri: `${process.env.NEXT_PUBLIC_SITE_URL}/api/social/callback/facebook`,
+        code,
+      }),
+    },
+  );
 
-  const tokenResponse = await fetch(url);
   const tokenData = await tokenResponse.json();
-
   if (!tokenResponse.ok) {
     throw new Error(tokenData.error?.message);
   }
 
-  const userToken = tokenData.access_token;
-
-  const pagesRes = await fetch(
-    `https://graph.facebook.com/v25.0/me/accounts?access_token=${userToken}`,
+  // IMPORTANT: Get pages (not /me)
+  const pagesResponse = await fetch(
+    `https://graph.facebook.com/v25.0/me/accounts?access_token=${tokenData.access_token}`,
   );
 
-  const pagesData = await pagesRes.json();
+  const pagesData = await pagesResponse.json();
 
-  if (!pagesRes.ok) {
+  if (!pagesResponse.ok) {
     throw new Error(pagesData.error?.message);
   }
 
-  const pages = pagesData.data || [];
+  const page = pagesData.data?.[0];
 
-  if (pages.length === 0) {
-    throw new Error("No Facebook pages found or missing permissions");
+  if (!page) {
+    throw new Error("No Facebook pages found");
   }
 
   return {
-    user_token: userToken,
-    pages: pages.map((p: any) => ({
-      id: p.id,
-      name: p.name,
-      access_token: p.access_token,
-    })),
+    access_token: page.access_token,
+    user_id: page.id,
+    username: page.name,
   };
 }
+
 // Your existing exchange functions...
 async function exchangeInstagramToken(code: string) {
   const response = await fetch("https://api.instagram.com/oauth/access_token", {
