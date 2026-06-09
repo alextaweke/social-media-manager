@@ -13,6 +13,7 @@ import {
   FaChrome,
   FaGithub,
 } from "react-icons/fa";
+
 interface SocialAuthButtonsProps {
   isLoading: boolean;
   redirectTo?: string;
@@ -31,21 +32,29 @@ export default function SocialAuthButtons({
     const supabase = createClient();
 
     try {
+      // Build provider-specific options
+      const options: Parameters<
+        typeof supabase.auth.signInWithOAuth
+      >[0]["options"] = {
+        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/callback`,
+      };
+
+      if (provider === "google") {
+        options.queryParams = { access_type: "offline", prompt: "consent" };
+        options.scopes = "email profile";
+      }
+
+      if (provider === "facebook") {
+        // Supabase passes these scopes to Facebook's OAuth dialog
+        options.scopes = "email,public_profile";
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: provider,
-        options: {
-          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/callback`,
-          queryParams: {
-            access_type: "offline",
-            prompt: "consent",
-          },
-          scopes: provider === "google" ? "email profile" : undefined,
-        },
+        provider,
+        options,
       });
 
       if (error) throw error;
-
-      // No need to show success toast as user will be redirected
     } catch (error: any) {
       console.error(`${provider} login error:`, error);
       toast.error(error.message || `Failed to login with ${provider}`);
@@ -53,76 +62,59 @@ export default function SocialAuthButtons({
     }
   };
 
-  const getProviderIcon = (provider: string) => {
-    switch (provider) {
-      case "google":
-        return <FaChrome className="h-4 w-4" />;
-      case "github":
-        return <FaGithub className="h-4 w-4" />;
-      case "twitter":
-        return <FaTwitter className="h-4 w-4" />;
-      case "linkedin":
-        return <FaLinkedin className="h-4 w-4" />;
-      case "facebook":
-        return <FaFacebook className="h-4 w-4" />;
-      default:
-        return null;
-    }
-  };
-
   const providers = [
     {
       id: "google" as const,
       name: "Google",
-      icon: FaChrome,
+      Icon: FaChrome,
       color: "hover:bg-red-50 dark:hover:bg-red-950/10",
     },
     {
       id: "github" as const,
       name: "GitHub",
-      icon: FaGithub,
+      Icon: FaGithub,
       color: "hover:bg-gray-100 dark:hover:bg-gray-800",
     },
     {
       id: "twitter" as const,
       name: "Twitter",
-      icon: FaTwitter,
-      color: "hover:bg-blue-50 dark:hover:bg-blue-950/10",
+      Icon: FaTwitter,
+      color: "hover:bg-sky-50 dark:hover:bg-sky-950/10",
     },
     {
       id: "linkedin" as const,
       name: "LinkedIn",
-      icon: FaLinkedin,
+      Icon: FaLinkedin,
       color: "hover:bg-blue-50 dark:hover:bg-blue-950/10",
     },
     {
       id: "facebook" as const,
       name: "Facebook",
-      icon: FaFacebook,
+      Icon: FaFacebook,
       color: "hover:bg-blue-50 dark:hover:bg-blue-950/10",
     },
   ];
 
   return (
     <div className="space-y-3">
-      {providers.map((provider) => (
+      {providers.map(({ id, name, Icon, color }) => (
         <Button
-          key={provider.id}
+          key={id}
           type="button"
           variant="outline"
-          className={`w-full relative ${provider.color} transition-all duration-200`}
-          onClick={() => handleSocialLogin(provider.id)}
+          className={`w-full relative ${color} transition-all duration-200`}
+          onClick={() => handleSocialLogin(id)}
           disabled={isLoading || socialLoading !== null}
         >
-          {socialLoading === provider.id ? (
+          {socialLoading === id ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Connecting...
             </>
           ) : (
             <>
-              {getProviderIcon(provider.id)}
-              <span className="ml-2">Continue with {provider.name}</span>
+              <Icon className="h-4 w-4" />
+              <span className="ml-2">Continue with {name}</span>
             </>
           )}
         </Button>
