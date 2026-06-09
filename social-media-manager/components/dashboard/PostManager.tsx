@@ -2,13 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -49,30 +43,24 @@ interface PublishedPost {
 interface FilterOptions {
   search: string;
   platform: string;
-  startDate: string;
-  endDate: string;
-  status: string;
   sortBy: string;
   sortOrder: "asc" | "desc";
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+type ViewMode = "grid" | "list" | "compact";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const PLATFORM_CONFIG: Record<
   string,
   { label: string; color: string; bg: string; icon: string }
 > = {
-  facebook: {
-    label: "Facebook",
-    color: "#0C447C",
-    bg: "#E6F1FB",
-    icon: "👍",
-  },
+  facebook: { label: "Facebook", color: "#0C447C", bg: "#E6F1FB", icon: "📘" },
   instagram: {
     label: "Instagram",
     color: "#72243E",
     bg: "#FBEAF0",
-    icon: "📸",
+    icon: "📷",
   },
   twitter: {
     label: "Twitter / X",
@@ -80,18 +68,8 @@ const PLATFORM_CONFIG: Record<
     bg: "#E6F1FB",
     icon: "🐦",
   },
-  linkedin: {
-    label: "LinkedIn",
-    color: "#042C53",
-    bg: "#dbeafe",
-    icon: "💼",
-  },
-  telegram: {
-    label: "Telegram",
-    color: "#0F6E56",
-    bg: "#E1F5EE",
-    icon: "✈️",
-  },
+  linkedin: { label: "LinkedIn", color: "#042C53", bg: "#dbeafe", icon: "🔗" },
+  telegram: { label: "Telegram", color: "#0F6E56", bg: "#E1F5EE", icon: "✈️" },
 };
 
 const PLATFORM_ACCENT: Record<string, string> = {
@@ -102,246 +80,452 @@ const PLATFORM_ACCENT: Record<string, string> = {
   telegram: "#1D9E75",
 };
 
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
-  return n.toString();
-}
+// ─── Utils Module ─────────────────────────────────────────────────────────────
 
-function totalLikes(post: Post) {
-  return (
-    post.published_posts?.reduce(
-      (s, pp) => s + (pp.engagement_likes || 0),
-      0,
-    ) ?? 0
-  );
-}
-function totalComments(post: Post) {
-  return (
-    post.published_posts?.reduce(
-      (s, pp) => s + (pp.engagement_comments || 0),
-      0,
-    ) ?? 0
-  );
-}
-function totalShares(post: Post) {
-  return (
-    post.published_posts?.reduce(
-      (s, pp) => s + (pp.engagement_shares || 0),
-      0,
-    ) ?? 0
-  );
-}
-function totalSaves(post: Post) {
-  return (
-    post.published_posts?.reduce(
-      (s, pp) => s + (pp.engagement_saves || 0),
-      0,
-    ) ?? 0
-  );
-}
-function totalReach(post: Post) {
-  return post.published_posts?.reduce((s, pp) => s + (pp.reach || 0), 0) ?? 0;
-}
-function totalEngagement(post: Post) {
-  return totalLikes(post) + totalComments(post) + totalShares(post);
-}
-function engagementRate(post: Post): number {
-  const r = totalReach(post);
-  return r > 0 ? (totalEngagement(post) / r) * 100 : 0;
-}
-function ppEngagementRate(pp: PublishedPost): number {
-  const eng =
-    (pp.engagement_likes || 0) +
-    (pp.engagement_comments || 0) +
-    (pp.engagement_shares || 0);
-  return pp.reach > 0 ? (eng / pp.reach) * 100 : 0;
-}
+const MetricsUtils = {
+  formatNumber(n: number): string {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+    return n.toString();
+  },
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+  sumField(post: Post, key: keyof PublishedPost): number {
+    return (
+      post.published_posts?.reduce(
+        (s, pp) => s + ((pp[key] as number) || 0),
+        0,
+      ) ?? 0
+    );
+  },
 
-function PlatformBadge({ platform }: { platform: string }) {
-  const cfg = PLATFORM_CONFIG[platform] ?? {
-    label: platform,
-    color: "#444",
-    bg: "#f0f0f0",
-    icon: "🌐",
-  };
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 11,
-        fontWeight: 600,
-        padding: "3px 8px",
-        borderRadius: 20,
-        backgroundColor: cfg.bg,
-        color: cfg.color,
-        whiteSpace: "nowrap",
-      }}
-    >
-      <span style={{ fontSize: 10 }}>{cfg.icon}</span>
-      {cfg.label}
-    </span>
+  totalEngagement(post: Post): number {
+    return (
+      this.sumField(post, "engagement_likes") +
+      this.sumField(post, "engagement_comments") +
+      this.sumField(post, "engagement_shares")
+    );
+  },
+
+  totalReach(post: Post): number {
+    return this.sumField(post, "reach");
+  },
+
+  postEngagementRate(post: Post): number {
+    const reach = this.totalReach(post);
+    return reach > 0 ? (this.totalEngagement(post) / reach) * 100 : 0;
+  },
+};
+
+// ─── YouTube-Style Video Player Component ─────────────────────────────────────
+
+const VideoPlayer: React.FC<{
+  post: Post | null;
+  onClose: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  hasNext: boolean;
+  hasPrevious: boolean;
+}> = ({ post, onClose, onNext, onPrevious, hasNext, hasPrevious }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  if (!post) return null;
+
+  const hasMedia = post.media_urls && post.media_urls.length > 0;
+  const isVideo = post.media_urls?.some((url) =>
+    url.match(/\.(mp4|webm|ogg|mov|avi)$/i),
   );
-}
+  const mediaUrl = hasMedia ? post.media_urls[0] : null;
+  const totalEngagement = MetricsUtils.totalEngagement(post);
+  const totalReach = MetricsUtils.totalReach(post);
+  const engagementRate = MetricsUtils.postEngagementRate(post);
 
-function StatCell({
-  icon,
-  value,
-  label,
-  iconColor,
-  bgColor,
-}: {
-  icon: string;
-  value: string;
-  label: string;
-  iconColor: string;
-  bgColor: string;
-}) {
   return (
     <div
       style={{
-        background: bgColor,
-        borderRadius: 8,
-        padding: "7px 4px",
-        textAlign: "center",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(0, 0, 0, 0.95)",
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        animation: "fadeIn 0.3s ease",
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div style={{ fontSize: 15, color: iconColor, marginBottom: 2 }}>
-        {icon}
-      </div>
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideIn {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+      `}</style>
+
       <div
         style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: "var(--foreground)",
-          lineHeight: 1,
+          width: "90vw",
+          maxWidth: 1200,
+          height: "80vh",
+          background: "#0f0f0f",
+          borderRadius: 12,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          animation: "slideIn 0.3s ease",
         }}
       >
-        {value}
-      </div>
-      <div
-        style={{
-          fontSize: 10,
-          color: "var(--muted-foreground)",
-          marginTop: 2,
-        }}
-      >
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function ERBar({
-  value,
-  max = 20,
-  showLabel = true,
-}: {
-  value: number;
-  max?: number;
-  showLabel?: boolean;
-}) {
-  const pct = Math.min((value / max) * 100, 100);
-  const color = value >= 5 ? "#1D9E75" : value >= 2 ? "#185FA5" : "#BA7517";
-
-  return (
-    <div>
-      {showLabel && (
+        {/* Header */}
         <div
           style={{
+            padding: "12px 20px",
+            background: "#1a1a1a",
             display: "flex",
             justifyContent: "space-between",
-            fontSize: 11,
-            color: "var(--muted-foreground)",
-            marginBottom: 4,
+            alignItems: "center",
+            borderBottom: "1px solid #2a2a2a",
           }}
         >
-          <span>Engagement rate</span>
-          <span style={{ fontWeight: 600, color: "var(--foreground)" }}>
-            {value.toFixed(1)}%
-          </span>
+          <div style={{ display: "flex", gap: 12 }}>
+            <button
+              onClick={onPrevious}
+              disabled={!hasPrevious}
+              style={{
+                background: "#2a2a2a",
+                border: "none",
+                color: "white",
+                width: 32,
+                height: 32,
+                borderRadius: 6,
+                cursor: hasPrevious ? "pointer" : "not-allowed",
+                opacity: hasPrevious ? 1 : 0.5,
+                fontSize: 18,
+              }}
+            >
+              ←
+            </button>
+            <button
+              onClick={onNext}
+              disabled={!hasNext}
+              style={{
+                background: "#2a2a2a",
+                border: "none",
+                color: "white",
+                width: 32,
+                height: 32,
+                borderRadius: 6,
+                cursor: hasNext ? "pointer" : "not-allowed",
+                opacity: hasNext ? 1 : 0.5,
+                fontSize: 18,
+              }}
+            >
+              →
+            </button>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "#2a2a2a",
+              border: "none",
+              color: "white",
+              width: 32,
+              height: 32,
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 20,
+            }}
+          >
+            ✕
+          </button>
         </div>
-      )}
-      <div
-        style={{
-          height: 4,
-          background: "var(--secondary)",
-          borderRadius: 99,
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            height: "100%",
-            width: `${pct}%`,
-            background: color,
-            borderRadius: 99,
-            transition: "width 0.3s ease",
-          }}
-        />
+
+        {/* Main Content */}
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* Video/Media Area */}
+          <div style={{ flex: 2, background: "#000", position: "relative" }}>
+            {mediaUrl ? (
+              isVideo ? (
+                <video
+                  ref={videoRef}
+                  src={mediaUrl}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "contain",
+                  }}
+                  controls
+                  autoPlay
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onTimeUpdate={(e) => {
+                    const video = e.currentTarget;
+                    setProgress((video.currentTime / video.duration) * 100);
+                  }}
+                />
+              ) : (
+                <img
+                  src={mediaUrl}
+                  alt=""
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "contain",
+                  }}
+                />
+              )
+            ) : (
+              <div
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 64,
+                  color: "#333",
+                }}
+              >
+                🖼️ No Media
+              </div>
+            )}
+          </div>
+
+          {/* Details Sidebar */}
+          <div
+            style={{
+              flex: 1,
+              background: "#1a1a1a",
+              overflowY: "auto",
+              padding: "20px",
+              borderLeft: "1px solid #2a2a2a",
+            }}
+          >
+            <h3
+              style={{
+                color: "white",
+                fontSize: 18,
+                marginBottom: 12,
+                lineHeight: 1.4,
+              }}
+            >
+              {post.content || "Untitled Post"}
+            </h3>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                marginBottom: 16,
+                flexWrap: "wrap",
+              }}
+            >
+              {post.published_posts?.map((pp, i) => (
+                <span
+                  key={i}
+                  style={{
+                    padding: "4px 8px",
+                    background: "#2a2a2a",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: PLATFORM_ACCENT[pp.platform],
+                  }}
+                >
+                  {PLATFORM_CONFIG[pp.platform]?.icon} {pp.platform}
+                </span>
+              ))}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, 1fr)",
+                gap: 12,
+                marginBottom: 20,
+              }}
+            >
+              <div
+                style={{
+                  background: "#2a2a2a",
+                  padding: "12px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 24, marginBottom: 4 }}>❤️</div>
+                <div
+                  style={{ fontSize: 18, fontWeight: 600, color: "#D4537E" }}
+                >
+                  {MetricsUtils.formatNumber(
+                    MetricsUtils.sumField(post, "engagement_likes"),
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: "#888" }}>Likes</div>
+              </div>
+              <div
+                style={{
+                  background: "#2a2a2a",
+                  padding: "12px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 24, marginBottom: 4 }}>💬</div>
+                <div
+                  style={{ fontSize: 18, fontWeight: 600, color: "#1D9E75" }}
+                >
+                  {MetricsUtils.formatNumber(
+                    MetricsUtils.sumField(post, "engagement_comments"),
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: "#888" }}>Comments</div>
+              </div>
+              <div
+                style={{
+                  background: "#2a2a2a",
+                  padding: "12px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 24, marginBottom: 4 }}>🔄</div>
+                <div
+                  style={{ fontSize: 18, fontWeight: 600, color: "#534AB7" }}
+                >
+                  {MetricsUtils.formatNumber(
+                    MetricsUtils.sumField(post, "engagement_shares"),
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: "#888" }}>Shares</div>
+              </div>
+              <div
+                style={{
+                  background: "#2a2a2a",
+                  padding: "12px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 24, marginBottom: 4 }}>👁️</div>
+                <div
+                  style={{ fontSize: 18, fontWeight: 600, color: "#378ADD" }}
+                >
+                  {MetricsUtils.formatNumber(totalReach)}
+                </div>
+                <div style={{ fontSize: 11, color: "#888" }}>Reach</div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "#2a2a2a",
+                padding: "12px",
+                borderRadius: 8,
+                marginBottom: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                }}
+              >
+                <span style={{ fontSize: 12, color: "#888" }}>
+                  Engagement Rate
+                </span>
+                <span
+                  style={{ fontSize: 14, fontWeight: 600, color: "#378ADD" }}
+                >
+                  {engagementRate.toFixed(2)}%
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 4,
+                  background: "#3a3a3a",
+                  borderRadius: 2,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${Math.min((engagementRate / 20) * 100, 100)}%`,
+                    background: "#378ADD",
+                    borderRadius: 2,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11, color: "#666", textAlign: "center" }}>
+              Published {format(new Date(post.published_at), "MMMM d, yyyy")}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
-}
+};
 
-function PostCard({ post, onClick }: { post: Post; onClick: () => void }) {
-  const er = engagementRate(post);
+// ─── YouTube-Style Card Component ────────────────────────────────────────────
+
+const YouTubeCard: React.FC<{
+  post: Post;
+  onClick: () => void;
+}> = ({ post, onClick }) => {
   const hasMedia = post.media_urls && post.media_urls.length > 0;
-  const isVideo = hasMedia && post.media_urls[0].match(/\.(mp4|webm|ogg)$/i);
+  const thumbnail = hasMedia ? post.media_urls[0] : null;
+  const totalViews = MetricsUtils.totalReach(post);
+  const totalLikes = MetricsUtils.sumField(post, "engagement_likes");
+  const totalComments = MetricsUtils.sumField(post, "engagement_comments");
+  const date = format(new Date(post.published_at), "MMM d, yyyy");
 
   return (
-    <article
+    <div
       onClick={onClick}
       style={{
-        background: "var(--card)",
-        border: "0.5px solid var(--border)",
-        borderRadius: 12,
-        overflow: "hidden",
         cursor: "pointer",
-        transition: "border-color 0.15s, box-shadow 0.15s, transform 0.12s",
-        display: "flex",
-        flexDirection: "column",
+        transition: "transform 0.2s ease",
       }}
       onMouseEnter={(e) => {
-        const el = e.currentTarget;
-        el.style.borderColor = "var(--ring)";
-        el.style.boxShadow = "0 4px 20px rgba(0,0,0,0.08)";
-        el.style.transform = "translateY(-1px)";
+        (e.currentTarget as HTMLDivElement).style.transform =
+          "translateY(-4px)";
       }}
       onMouseLeave={(e) => {
-        const el = e.currentTarget;
-        el.style.borderColor = "var(--border)";
-        el.style.boxShadow = "none";
-        el.style.transform = "none";
+        (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
       }}
     >
-      {/* Media thumbnail */}
+      {/* Thumbnail */}
       <div
         style={{
-          height: 160,
-          background: "var(--muted)",
-          overflow: "hidden",
           position: "relative",
-          flexShrink: 0,
+          borderRadius: 12,
+          overflow: "hidden",
+          background: "#1a1a1a",
+          aspectRatio: "16/9",
+          marginBottom: 8,
         }}
       >
-        {hasMedia ? (
-          isVideo ? (
-            <video
-              src={post.media_urls[0]}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          ) : (
-            <img
-              src={post.media_urls[0]}
-              alt="Post media"
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          )
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt=""
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
         ) : (
           <div
             style={{
@@ -350,565 +534,532 @@ function PostCard({ post, onClick }: { post: Post; onClick: () => void }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 40,
-              opacity: 0.18,
+              fontSize: 48,
+              color: "#333",
             }}
           >
-            🖼
+            🖼️
           </div>
         )}
-        {post.media_urls && post.media_urls.length > 1 && (
-          <span
-            style={{
-              position: "absolute",
-              bottom: 8,
-              right: 8,
-              background: "rgba(0,0,0,0.55)",
-              color: "#fff",
-              fontSize: 11,
-              padding: "2px 8px",
-              borderRadius: 20,
-              fontWeight: 500,
-            }}
-          >
-            +{post.media_urls.length - 1} more
-          </span>
-        )}
-        {/* Platform accent line */}
-        {post.published_posts?.[0] && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: 3,
-              background:
-                PLATFORM_ACCENT[post.published_posts[0].platform] ?? "#888",
-              opacity: 0.9,
-            }}
-          />
-        )}
-      </div>
-
-      <div
-        style={{
-          padding: "12px 14px",
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}
-      >
-        {/* Platform badges */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-          {post.published_posts?.map((pp, i) => (
-            <PlatformBadge key={i} platform={pp.platform} />
-          ))}
-        </div>
-
-        {/* Content */}
-        <p
-          style={{
-            fontSize: 13,
-            color: "var(--foreground)",
-            lineHeight: 1.55,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-            flex: 1,
-          }}
-        >
-          {post.content || "No content"}
-        </p>
-
-        {/* Date */}
         <div
           style={{
+            position: "absolute",
+            bottom: 8,
+            right: 8,
+            background: "rgba(0,0,0,0.8)",
+            padding: "2px 6px",
+            borderRadius: 4,
+            fontSize: 11,
+            color: "white",
+          }}
+        >
+          {totalViews.toLocaleString()} views
+        </div>
+      </div>
+
+      {/* Info */}
+      <div style={{ display: "flex", gap: 12 }}>
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: `linear-gradient(135deg, ${PLATFORM_ACCENT[post.published_posts?.[0]?.platform] || "#378ADD"}, ${
+              PLATFORM_ACCENT[post.published_posts?.[0]?.platform] || "#378ADD"
+            }88)`,
             display: "flex",
             alignItems: "center",
-            gap: 5,
-            fontSize: 11,
-            color: "var(--muted-foreground)",
+            justifyContent: "center",
+            fontSize: 18,
+            flexShrink: 0,
           }}
         >
-          <span>📅</span>
-          {format(new Date(post.published_at), "d MMM yyyy")}
+          {PLATFORM_CONFIG[post.published_posts?.[0]?.platform]?.icon || "📱"}
         </div>
-
-        {/* Stats grid */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 5,
-          }}
-        >
-          <StatCell
-            icon="❤️"
-            value={fmtNum(totalLikes(post))}
-            label="Likes"
-            iconColor="#D4537E"
-            bgColor="rgba(212,83,126,0.08)"
-          />
-          <StatCell
-            icon="💬"
-            value={fmtNum(totalComments(post))}
-            label="Comments"
-            iconColor="#1D9E75"
-            bgColor="rgba(29,158,117,0.08)"
-          />
-          <StatCell
-            icon="↗️"
-            value={fmtNum(totalShares(post))}
-            label="Shares"
-            iconColor="#534AB7"
-            bgColor="rgba(83,74,183,0.08)"
-          />
-          <StatCell
-            icon="👁️"
-            value={fmtNum(totalReach(post))}
-            label="Reach"
-            iconColor="#185FA5"
-            bgColor="rgba(24,95,165,0.08)"
-          />
-          <StatCell
-            icon="🔖"
-            value={fmtNum(totalSaves(post))}
-            label="Saves"
-            iconColor="#BA7517"
-            bgColor="rgba(186,117,23,0.08)"
-          />
-          <StatCell
-            icon="📈"
-            value={`${er.toFixed(1)}%`}
-            label="ER"
-            iconColor="#3B6D11"
-            bgColor="rgba(59,109,17,0.08)"
-          />
-        </div>
-
-        <ERBar value={er} />
-      </div>
-    </article>
-  );
-}
-
-function PlatformPerfCard({ pp }: { pp: PublishedPost }) {
-  const er = ppEngagementRate(pp);
-  const accent = PLATFORM_ACCENT[pp.platform] ?? "#888";
-
-  return (
-    <div
-      style={{
-        border: "0.5px solid var(--border)",
-        borderRadius: 10,
-        overflow: "hidden",
-        marginBottom: 10,
-      }}
-    >
-      {/* Accent stripe */}
-      <div style={{ height: 3, background: accent }} />
-
-      {/* Header */}
-      <div
-        style={{
-          padding: "10px 14px",
-          borderBottom: "0.5px solid var(--border)",
-          background: "var(--muted)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <PlatformBadge platform={pp.platform} />
-          {pp.platform_post_url && (
-            <a
-              href={pp.platform_post_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                fontSize: 11,
-                color: "#185FA5",
-                textDecoration: "none",
-                display: "flex",
-                alignItems: "center",
-                gap: 3,
-              }}
-            >
-              View post ↗
-            </a>
-          )}
-        </div>
-        <span
-          style={{
-            fontSize: 11,
-            color: "var(--muted-foreground)",
-            background: "var(--secondary)",
-            padding: "2px 8px",
-            borderRadius: 20,
-          }}
-        >
-          Synced {format(new Date(pp.last_synced || pp.published_at), "d MMM")}
-        </span>
-      </div>
-
-      {/* Engagement metrics */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 8,
-          padding: "12px 14px",
-        }}
-      >
-        {[
-          {
-            val: pp.engagement_likes || 0,
-            lbl: "Likes",
-            color: "#D4537E",
-            bg: "rgba(212,83,126,0.07)",
-          },
-          {
-            val: pp.engagement_comments || 0,
-            lbl: "Comments",
-            color: "#1D9E75",
-            bg: "rgba(29,158,117,0.07)",
-          },
-          {
-            val: pp.engagement_shares || 0,
-            lbl: "Shares",
-            color: "#534AB7",
-            bg: "rgba(83,74,183,0.07)",
-          },
-          {
-            val: pp.engagement_saves || 0,
-            lbl: "Saves",
-            color: "#BA7517",
-            bg: "rgba(186,117,23,0.07)",
-          },
-        ].map(({ val, lbl, color, bg }) => (
+        <div style={{ flex: 1 }}>
           <div
-            key={lbl}
             style={{
-              textAlign: "center",
-              padding: "10px 6px",
-              borderRadius: 8,
-              background: bg,
+              fontSize: 14,
+              fontWeight: 500,
+              color: "var(--foreground)",
+              marginBottom: 4,
+              lineHeight: 1.3,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
             }}
           >
-            <div
-              style={{
-                fontSize: 20,
-                fontWeight: 600,
-                color,
-                lineHeight: 1,
-              }}
-            >
-              {val.toLocaleString()}
-            </div>
-            <div
-              style={{
-                fontSize: 11,
-                color: "var(--muted-foreground)",
-                marginTop: 3,
-              }}
-            >
-              {lbl}
-            </div>
+            {post.content || "Untitled Post"}
           </div>
-        ))}
-      </div>
-
-      {/* Reach metrics */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${pp.video_views > 0 ? 4 : 3}, 1fr)`,
-          gap: 8,
-          padding: "0 14px 12px",
-        }}
-      >
-        {[
-          { val: pp.reach || 0, lbl: "Reach" },
-          { val: pp.impressions || 0, lbl: "Impressions" },
-          { val: pp.clicks || 0, lbl: "Clicks" },
-          ...(pp.video_views > 0
-            ? [{ val: pp.video_views, lbl: "Video views" }]
-            : []),
-        ].map(({ val, lbl }) => (
-          <div
-            key={lbl}
-            style={{
-              background: "var(--muted)",
-              borderRadius: 8,
-              padding: "8px 6px",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 15,
-                fontWeight: 600,
-                color: "var(--foreground)",
-                lineHeight: 1,
-              }}
-            >
-              {val.toLocaleString()}
-            </div>
-            <div
-              style={{
-                fontSize: 11,
-                color: "var(--muted-foreground)",
-                marginTop: 3,
-              }}
-            >
-              {lbl}
-            </div>
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>
+            {totalLikes.toLocaleString()} likes •{" "}
+            {totalComments.toLocaleString()} comments
           </div>
-        ))}
-      </div>
-
-      {/* ER bar */}
-      <div style={{ padding: "0 14px 14px" }}>
-        <ERBar value={er} showLabel />
+          <div style={{ fontSize: 11, color: "#666" }}>{date}</div>
+        </div>
       </div>
     </div>
   );
-}
+};
 
-// ─── Filter bar ───────────────────────────────────────────────────────────────
+// ─── List View Card Component ────────────────────────────────────────────────
 
-function FilterBar({
-  filters,
-  onChange,
-  onReset,
-}: {
-  filters: FilterOptions;
-  onChange: (f: FilterOptions) => void;
-  onReset: () => void;
-}) {
-  const set = (patch: Partial<FilterOptions>) =>
-    onChange({ ...filters, ...patch });
-  const isDirty =
-    filters.search ||
-    filters.platform !== "all" ||
-    filters.startDate ||
-    filters.endDate ||
-    filters.status !== "all";
-
-  const inputStyle: React.CSSProperties = {
-    height: 34,
-    width: "100%",
-    fontSize: 13,
-    padding: "0 10px",
-    borderRadius: 8,
-    border: "0.5px solid var(--border)",
-    background: "var(--secondary)",
-    color: "var(--foreground)",
-    outline: "none",
-    fontFamily: "inherit",
-  };
+const ListCard: React.FC<{
+  post: Post;
+  onClick: () => void;
+}> = ({ post, onClick }) => {
+  const hasMedia = post.media_urls && post.media_urls.length > 0;
+  const thumbnail = hasMedia ? post.media_urls[0] : null;
+  const totalViews = MetricsUtils.totalReach(post);
+  const totalEngagement = MetricsUtils.totalEngagement(post);
 
   return (
     <div
+      onClick={onClick}
       style={{
+        display: "flex",
+        gap: 16,
+        padding: "12px",
         background: "var(--card)",
         border: "0.5px solid var(--border)",
         borderRadius: 12,
-        padding: "14px 16px",
-        marginBottom: 16,
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLDivElement).style.background =
+          "var(--secondary)";
+        (e.currentTarget as HTMLDivElement).style.transform = "translateX(4px)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLDivElement).style.background = "var(--card)";
+        (e.currentTarget as HTMLDivElement).style.transform = "translateX(0)";
       }}
     >
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
-          gap: 12,
-          alignItems: "end",
+          width: 160,
+          height: 90,
+          borderRadius: 8,
+          overflow: "hidden",
+          background: "#1a1a1a",
+          flexShrink: 0,
+          position: "relative",
         }}
       >
-        {/* Search */}
-        <div>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--muted-foreground)",
-              marginBottom: 5,
-              letterSpacing: "0.02em",
-            }}
-          >
-            Search
-          </div>
-          <div style={{ position: "relative" }}>
-            <span
-              style={{
-                position: "absolute",
-                left: 10,
-                top: "50%",
-                transform: "translateY(-50%)",
-                fontSize: 14,
-                pointerEvents: "none",
-                color: "var(--muted-foreground)",
-              }}
-            >
-              🔍
-            </span>
-            <input
-              type="text"
-              placeholder="Search by content..."
-              value={filters.search}
-              onChange={(e) => set({ search: e.target.value })}
-              style={{ ...inputStyle, paddingLeft: 32 }}
-            />
-          </div>
-        </div>
-
-        {/* Platform */}
-        <div>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--muted-foreground)",
-              marginBottom: 5,
-              letterSpacing: "0.02em",
-            }}
-          >
-            Platform
-          </div>
-          <select
-            value={filters.platform}
-            onChange={(e) => set({ platform: e.target.value })}
-            style={inputStyle}
-          >
-            <option value="all">All platforms</option>
-            <option value="facebook">Facebook</option>
-            <option value="instagram">Instagram</option>
-            <option value="twitter">Twitter / X</option>
-            <option value="linkedin">LinkedIn</option>
-            <option value="telegram">Telegram</option>
-          </select>
-        </div>
-
-        {/* Start date */}
-        <div>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--muted-foreground)",
-              marginBottom: 5,
-              letterSpacing: "0.02em",
-            }}
-          >
-            From
-          </div>
-          <input
-            type="date"
-            value={filters.startDate}
-            onChange={(e) => set({ startDate: e.target.value })}
-            style={inputStyle}
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
-        </div>
-
-        {/* End date */}
-        <div>
+        ) : (
           <div
             style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--muted-foreground)",
-              marginBottom: 5,
-              letterSpacing: "0.02em",
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 32,
+              color: "#333",
             }}
           >
-            To
+            🖼️
           </div>
-          <input
-            type="date"
-            value={filters.endDate}
-            onChange={(e) => set({ endDate: e.target.value })}
-            style={inputStyle}
-          />
-        </div>
-
-        {/* Status */}
-        <div>
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--muted-foreground)",
-              marginBottom: 5,
-              letterSpacing: "0.02em",
-            }}
-          >
-            Status
-          </div>
-          <select
-            value={filters.status}
-            onChange={(e) => set({ status: e.target.value })}
-            style={inputStyle}
-          >
-            <option value="all">All statuses</option>
-            <option value="published">Published</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="draft">Draft</option>
-          </select>
+        )}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 4,
+            right: 4,
+            background: "rgba(0,0,0,0.8)",
+            padding: "2px 4px",
+            borderRadius: 4,
+            fontSize: 10,
+            color: "white",
+          }}
+        >
+          {totalViews.toLocaleString()}
         </div>
       </div>
 
-      {isDirty && (
+      <div style={{ flex: 1 }}>
         <div
-          style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}
+          style={{
+            fontSize: 14,
+            fontWeight: 500,
+            color: "var(--foreground)",
+            marginBottom: 6,
+            lineHeight: 1.3,
+          }}
         >
-          <button
-            onClick={onReset}
-            style={{
-              fontSize: 12,
-              color: "var(--muted-foreground)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: "4px 10px",
-              borderRadius: 6,
-              textDecoration: "underline",
-              textUnderlineOffset: 2,
-              fontFamily: "inherit",
-            }}
-          >
-            Clear all filters
-          </button>
+          {post.content || "Untitled Post"}
         </div>
-      )}
+        <div style={{ display: "flex", gap: 12, marginBottom: 6 }}>
+          {post.published_posts?.slice(0, 3).map((pp, i) => (
+            <span
+              key={i}
+              style={{
+                fontSize: 10,
+                color: PLATFORM_ACCENT[pp.platform],
+              }}
+            >
+              {PLATFORM_CONFIG[pp.platform]?.icon} {pp.platform}
+            </span>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: "#888" }}>
+          {totalEngagement.toLocaleString()} engagements •{" "}
+          {format(new Date(post.published_at), "MMM d, yyyy")}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 16, color: "#D4537E" }}>❤️</div>
+          <div style={{ fontSize: 12, fontWeight: 600 }}>
+            {MetricsUtils.formatNumber(
+              MetricsUtils.sumField(post, "engagement_likes"),
+            )}
+          </div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 16, color: "#1D9E75" }}>💬</div>
+          <div style={{ fontSize: 12, fontWeight: 600 }}>
+            {MetricsUtils.formatNumber(
+              MetricsUtils.sumField(post, "engagement_comments"),
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
-}
+};
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Compact Card Component ──────────────────────────────────────────────────
+
+const CompactCard: React.FC<{
+  post: Post;
+  onClick: () => void;
+}> = ({ post, onClick }) => {
+  const totalViews = MetricsUtils.totalReach(post);
+  const engagementRate = MetricsUtils.postEngagementRate(post);
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "8px 12px",
+        background: "var(--card)",
+        border: "0.5px solid var(--border)",
+        borderRadius: 8,
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLDivElement).style.background =
+          "var(--secondary)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLDivElement).style.background = "var(--card)";
+      }}
+    >
+      <div
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 6,
+          overflow: "hidden",
+          background: "#1a1a1a",
+          flexShrink: 0,
+        }}
+      >
+        {post.media_urls?.[0] ? (
+          <img
+            src={post.media_urls[0]}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+              color: "#333",
+            }}
+          >
+            🖼️
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--foreground)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {post.content || "Untitled Post"}
+        </div>
+        <div style={{ fontSize: 10, color: "#888" }}>
+          {totalViews.toLocaleString()} views • {engagementRate.toFixed(1)}% ER
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, color: "#666" }}>
+        {format(new Date(post.published_at), "MMM d")}
+      </div>
+    </div>
+  );
+};
+
+// ─── Filter Bar Module ───────────────────────────────────────────────────────
+
+const FilterBar: React.FC<{
+  filters: FilterOptions;
+  viewMode: ViewMode;
+  onFilterChange: (patch: Partial<FilterOptions>) => void;
+  onViewModeChange: (mode: ViewMode) => void;
+  totalPosts: number;
+  filteredCount: number;
+}> = ({
+  filters,
+  viewMode,
+  onFilterChange,
+  onViewModeChange,
+  totalPosts,
+  filteredCount,
+}) => {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 12,
+        marginBottom: 20,
+        flexWrap: "wrap",
+        alignItems: "center",
+        padding: "12px 0",
+      }}
+    >
+      <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
+        <span
+          style={{
+            position: "absolute",
+            left: 10,
+            top: "50%",
+            transform: "translateY(-50%)",
+            fontSize: 14,
+            color: "var(--muted-foreground)",
+          }}
+        >
+          🔍
+        </span>
+        <input
+          type="text"
+          placeholder="Search posts..."
+          value={filters.search}
+          onChange={(e) => onFilterChange({ search: e.target.value })}
+          style={{
+            height: 36,
+            fontSize: 13,
+            fontFamily: "inherit",
+            borderRadius: 8,
+            border: "0.5px solid var(--border)",
+            background: "var(--secondary)",
+            color: "var(--foreground)",
+            padding: "0 10px 0 32px",
+            outline: "none",
+            width: "100%",
+          }}
+        />
+      </div>
+
+      <select
+        value={filters.platform}
+        onChange={(e) => onFilterChange({ platform: e.target.value })}
+        style={{
+          height: 36,
+          fontSize: 13,
+          borderRadius: 8,
+          border: "0.5px solid var(--border)",
+          background: "var(--secondary)",
+          color: "var(--foreground)",
+          padding: "0 10px",
+          cursor: "pointer",
+          minWidth: 130,
+        }}
+      >
+        <option value="all">🌐 All Platforms</option>
+        {Object.entries(PLATFORM_CONFIG).map(([key, config]) => (
+          <option key={key} value={key}>
+            {config.icon} {config.label}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={filters.sortBy}
+        onChange={(e) => onFilterChange({ sortBy: e.target.value })}
+        style={{
+          height: 36,
+          fontSize: 13,
+          borderRadius: 8,
+          border: "0.5px solid var(--border)",
+          background: "var(--secondary)",
+          color: "var(--foreground)",
+          padding: "0 10px",
+          cursor: "pointer",
+          minWidth: 120,
+        }}
+      >
+        <option value="published_at">📅 Date</option>
+        <option value="likes">❤️ Likes</option>
+        <option value="engagement">📊 Engagement</option>
+        <option value="reach">👁️ Reach</option>
+      </select>
+
+      <button
+        style={{
+          height: 36,
+          width: 36,
+          borderRadius: 8,
+          border: "0.5px solid var(--border)",
+          background: "var(--secondary)",
+          cursor: "pointer",
+          fontSize: 16,
+        }}
+        onClick={() =>
+          onFilterChange({
+            sortOrder: filters.sortOrder === "desc" ? "asc" : "desc",
+          })
+        }
+      >
+        {filters.sortOrder === "desc" ? "↓" : "↑"}
+      </button>
+
+      <div style={{ flex: 1 }} />
+
+      {/* View Mode Toggle */}
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          background: "var(--secondary)",
+          padding: 4,
+          borderRadius: 8,
+          border: "0.5px solid var(--border)",
+        }}
+      >
+        {[
+          { mode: "grid", icon: "⊞", label: "Grid" },
+          { mode: "list", icon: "☰", label: "List" },
+          { mode: "compact", icon: "≡", label: "Compact" },
+        ].map(({ mode, icon, label }) => (
+          <button
+            key={mode}
+            onClick={() => onViewModeChange(mode as ViewMode)}
+            style={{
+              padding: "4px 12px",
+              borderRadius: 6,
+              background: viewMode === mode ? "var(--card)" : "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 13,
+              color: "var(--foreground)",
+              transition: "all 0.2s ease",
+            }}
+            title={label}
+          >
+            {icon}
+          </button>
+        ))}
+      </div>
+
+      <div
+        style={{
+          fontSize: 12,
+          color: "var(--muted-foreground)",
+          padding: "0 8px",
+          background: "var(--secondary)",
+          borderRadius: 6,
+          height: 36,
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <strong style={{ color: "var(--foreground)", marginRight: 4 }}>
+          {filteredCount}
+        </strong>
+        of {totalPosts}
+      </div>
+    </div>
+  );
+};
+
+// ─── Loading Spinner ─────────────────────────────────────────────────────────
+
+const LoadingSpinner: React.FC = () => (
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 400,
+      gap: 12,
+      flexDirection: "column",
+    }}
+  >
+    <div
+      style={{
+        width: 40,
+        height: 40,
+        border: "3px solid var(--border)",
+        borderTopColor: "#378ADD",
+        borderRadius: "50%",
+        animation: "spin 0.7s linear infinite",
+      }}
+    />
+    <span style={{ color: "var(--muted-foreground)", fontSize: 13 }}>
+      Loading your content...
+    </span>
+    <style>{`
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    `}</style>
+  </div>
+);
+
+// ─── Main Component ──────────────────────────────────────────────────────────
 
 const DEFAULT_FILTERS: FilterOptions = {
   search: "",
   platform: "all",
-  startDate: "",
-  endDate: "",
-  status: "all",
   sortBy: "published_at",
   sortOrder: "desc",
 };
 
 export default function PostManager() {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [filteredPosts, setFilteredPosts] = useState<Post[]>([]);
+  const [filtered, setFiltered] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-  const [showDetail, setShowDetail] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [filters, setFilters] = useState<FilterOptions>(DEFAULT_FILTERS);
 
   useEffect(() => {
@@ -917,7 +1068,6 @@ export default function PostManager() {
 
   useEffect(() => {
     applyFilters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [posts, filters]);
 
   const fetchPosts = async () => {
@@ -925,10 +1075,7 @@ export default function PostManager() {
     try {
       const res = await fetch("/api/analytics/posts?limit=100");
       const data = await res.json();
-      if (data.success) {
-        setPosts(data.posts);
-        setFilteredPosts(data.posts);
-      }
+      if (data.success) setPosts(data.posts);
     } catch {
       toast.error("Failed to fetch posts");
     } finally {
@@ -936,7 +1083,7 @@ export default function PostManager() {
     }
   };
 
-  const syncAllMetrics = async () => {
+  const syncAll = async () => {
     setSyncing(true);
     try {
       const res = await fetch("/api/analytics/fetch-metrics", {
@@ -958,7 +1105,6 @@ export default function PostManager() {
 
   const applyFilters = useCallback(() => {
     let result = [...posts];
-
     if (filters.search) {
       const q = filters.search.toLowerCase();
       result = result.filter((p) => p.content?.toLowerCase().includes(q));
@@ -968,35 +1114,20 @@ export default function PostManager() {
         p.published_posts?.some((pp) => pp.platform === filters.platform),
       );
     }
-    if (filters.startDate) {
-      result = result.filter(
-        (p) => new Date(p.published_at) >= new Date(filters.startDate),
-      );
-    }
-    if (filters.endDate) {
-      result = result.filter(
-        (p) =>
-          new Date(p.published_at) <= new Date(filters.endDate + "T23:59:59Z"),
-      );
-    }
-    if (filters.status !== "all") {
-      result = result.filter((p) => p.status === filters.status);
-    }
-
     result.sort((a, b) => {
       let av: number, bv: number;
       switch (filters.sortBy) {
         case "likes":
-          av = totalLikes(a);
-          bv = totalLikes(b);
+          av = MetricsUtils.sumField(a, "engagement_likes");
+          bv = MetricsUtils.sumField(b, "engagement_likes");
           break;
         case "engagement":
-          av = totalEngagement(a);
-          bv = totalEngagement(b);
+          av = MetricsUtils.totalEngagement(a);
+          bv = MetricsUtils.totalEngagement(b);
           break;
         case "reach":
-          av = totalReach(a);
-          bv = totalReach(b);
+          av = MetricsUtils.totalReach(a);
+          bv = MetricsUtils.totalReach(b);
           break;
         default:
           av = new Date(a.published_at).getTime();
@@ -1004,148 +1135,120 @@ export default function PostManager() {
       }
       return filters.sortOrder === "desc" ? bv - av : av - bv;
     });
-
-    setFilteredPosts(result);
+    setFiltered(result);
   }, [posts, filters]);
 
-  // ── Styles ─────────────────────────────────────────────────────────────────
-
-  const btnBase: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "7px 14px",
-    fontSize: 13,
-    fontWeight: 500,
-    borderRadius: 8,
-    cursor: "pointer",
-    border: "0.5px solid var(--border)",
-    background: "var(--background)",
-    color: "var(--foreground)",
-    fontFamily: "inherit",
-    transition: "background 0.12s",
+  const updateFilters = (patch: Partial<FilterOptions>) => {
+    setFilters((prev) => ({ ...prev, ...patch }));
   };
 
-  const btnPrimary: React.CSSProperties = {
-    ...btnBase,
-    background: "#185FA5",
-    color: "#E6F1FB",
-    border: "none",
+  const handlePostClick = (post: Post) => {
+    setSelectedPost(post);
   };
 
-  const selectStyle: React.CSSProperties = {
-    height: 34,
-    fontSize: 13,
-    padding: "0 8px",
-    borderRadius: 8,
-    border: "0.5px solid var(--border)",
-    background: "var(--secondary)",
-    color: "var(--foreground)",
-    outline: "none",
-    fontFamily: "inherit",
-    cursor: "pointer",
+  const handleClosePlayer = () => {
+    setSelectedPost(null);
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const handleNext = () => {
+    if (!selectedPost) return;
+    const currentIndex = filtered.findIndex((p) => p.id === selectedPost.id);
+    if (currentIndex < filtered.length - 1) {
+      setSelectedPost(filtered[currentIndex + 1]);
+    }
+  };
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: 400,
-          gap: 10,
-          color: "var(--muted-foreground)",
-          fontSize: 14,
-        }}
-      >
-        <span
-          style={{
-            display: "inline-block",
-            width: 20,
-            height: 20,
-            border: "2px solid var(--border)",
-            borderTopColor: "#185FA5",
-            borderRadius: "50%",
-            animation: "pm-spin 0.7s linear infinite",
-          }}
-        />
-        Loading posts…
-        <style>{`@keyframes pm-spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    );
-  }
+  const handlePrevious = () => {
+    if (!selectedPost) return;
+    const currentIndex = filtered.findIndex((p) => p.id === selectedPost.id);
+    if (currentIndex > 0) {
+      setSelectedPost(filtered[currentIndex - 1]);
+    }
+  };
+
+  const getCurrentIndex = () => {
+    if (!selectedPost) return -1;
+    return filtered.findIndex((p) => p.id === selectedPost.id);
+  };
+
+  if (loading) return <LoadingSpinner />;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      <style>{`
-        @keyframes pm-spin { to { transform: rotate(360deg); } }
-        .pm-card-hover:hover {
-          border-color: var(--ring) !important;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.08) !important;
-          transform: translateY(-1px) !important;
-        }
-      `}</style>
-
+    <div style={{ padding: "20px" }}>
       {/* Header */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "flex-start",
+          alignItems: "center",
           flexWrap: "wrap",
           gap: 12,
-          marginBottom: 20,
+          marginBottom: 24,
+          paddingBottom: 16,
+          borderBottom: "1px solid var(--border)",
         }}
       >
         <div>
-          <h2
+          <h1
             style={{
-              fontSize: 22,
+              fontSize: 24,
               fontWeight: 600,
               color: "var(--foreground)",
               margin: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
             }}
           >
-            Post Manager
-          </h2>
+            <span>🎬</span> Content Studio
+          </h1>
           <p
             style={{
               fontSize: 13,
               color: "var(--muted-foreground)",
-              marginTop: 3,
+              marginTop: 4,
             }}
           >
-            Manage and analyze all your social media posts
+            Track engagement and performance across all platforms
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button style={btnBase} onClick={fetchPosts}>
+          <button
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 16px",
+              fontSize: 13,
+              fontWeight: 500,
+              borderRadius: 8,
+              cursor: "pointer",
+              border: "0.5px solid var(--border)",
+              background: "var(--background)",
+              color: "var(--foreground)",
+            }}
+            onClick={fetchPosts}
+          >
             🔄 Refresh
           </button>
           <button
-            style={btnPrimary}
-            onClick={syncAllMetrics}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 16px",
+              fontSize: 13,
+              fontWeight: 500,
+              borderRadius: 8,
+              cursor: "pointer",
+              background: "#378ADD",
+              color: "white",
+              border: "none",
+            }}
+            onClick={syncAll}
             disabled={syncing}
           >
-            {syncing ? (
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 14,
-                  height: 14,
-                  border: "2px solid rgba(255,255,255,0.3)",
-                  borderTopColor: "#fff",
-                  borderRadius: "50%",
-                  animation: "pm-spin 0.7s linear infinite",
-                }}
-              />
-            ) : (
-              "☁️"
-            )}
-            {syncing ? "Syncing…" : "Sync All Metrics"}
+            {syncing ? "⏳ Syncing..." : "☁️ Sync Metrics"}
           </button>
         </div>
       </div>
@@ -1153,293 +1256,110 @@ export default function PostManager() {
       {/* Filters */}
       <FilterBar
         filters={filters}
-        onChange={setFilters}
-        onReset={() => setFilters(DEFAULT_FILTERS)}
+        viewMode={viewMode}
+        onFilterChange={updateFilters}
+        onViewModeChange={setViewMode}
+        totalPosts={posts.length}
+        filteredCount={filtered.length}
       />
 
-      {/* Results meta + sort */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 14,
-        }}
-      >
-        <span style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
-          Showing{" "}
-          <strong style={{ color: "var(--foreground)" }}>
-            {filteredPosts.length}
-          </strong>{" "}
-          of {posts.length} posts
-        </span>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>
-            Sort by
-          </span>
-          <select
-            style={{ ...selectStyle, width: 130 }}
-            value={filters.sortBy}
-            onChange={(e) => setFilters({ ...filters, sortBy: e.target.value })}
-          >
-            <option value="published_at">Date</option>
-            <option value="likes">Likes</option>
-            <option value="engagement">Engagement</option>
-            <option value="reach">Reach</option>
-          </select>
-          <button
-            style={{
-              ...btnBase,
-              width: 34,
-              height: 34,
-              padding: 0,
-              justifyContent: "center",
-            }}
-            onClick={() =>
-              setFilters({
-                ...filters,
-                sortOrder: filters.sortOrder === "desc" ? "asc" : "desc",
-              })
-            }
-            title="Toggle sort direction"
-          >
-            {filters.sortOrder === "desc" ? "↓" : "↑"}
-          </button>
-        </div>
-      </div>
-
-      {/* Posts grid */}
-      {filteredPosts.length > 0 ? (
+      {/* Content Grid */}
+      {filtered.length === 0 ? (
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
-            gap: 14,
+            textAlign: "center",
+            padding: "80px 20px",
+            background: "var(--card)",
+            borderRadius: 12,
+            border: "0.5px solid var(--border)",
           }}
         >
-          {filteredPosts.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              onClick={() => {
-                setSelectedPost(post);
-                setShowDetail(true);
+          <div style={{ fontSize: 64, marginBottom: 16, opacity: 0.3 }}>📭</div>
+          <p
+            style={{
+              fontSize: 14,
+              color: "var(--foreground)",
+              marginBottom: 8,
+            }}
+          >
+            No content found
+          </p>
+          <p style={{ fontSize: 12, color: "var(--muted-foreground)" }}>
+            Try adjusting your filters
+          </p>
+          {(filters.search || filters.platform !== "all") && (
+            <button
+              style={{
+                padding: "6px 12px",
+                fontSize: 12,
+                borderRadius: 6,
+                border: "0.5px solid var(--border)",
+                background: "var(--background)",
+                cursor: "pointer",
+                marginTop: 12,
               }}
-            />
-          ))}
+              onClick={() => setFilters(DEFAULT_FILTERS)}
+            >
+              Clear all filters
+            </button>
+          )}
         </div>
       ) : (
         <div
           style={{
-            textAlign: "center",
-            padding: "3rem 1rem",
-            color: "var(--muted-foreground)",
+            display: viewMode === "grid" ? "grid" : "flex",
+            gridTemplateColumns:
+              viewMode === "grid"
+                ? "repeat(auto-fill, minmax(320px, 1fr))"
+                : undefined,
+            flexDirection:
+              viewMode === "list" || viewMode === "compact"
+                ? "column"
+                : undefined,
+            gap: viewMode === "grid" ? 20 : 12,
           }}
         >
-          <div style={{ fontSize: 48, opacity: 0.2, marginBottom: 12 }}>📊</div>
-          <h3
-            style={{
-              fontSize: 16,
-              fontWeight: 500,
-              color: "var(--foreground)",
-              marginBottom: 6,
-            }}
-          >
-            No posts found
-          </h3>
-          <p style={{ fontSize: 13 }}>Try adjusting your search or filters</p>
-          <button
-            style={{ ...btnBase, marginTop: 12, textDecoration: "underline" }}
-            onClick={() => setFilters(DEFAULT_FILTERS)}
-          >
-            Clear all filters
-          </button>
+          {filtered.map((post) => {
+            if (viewMode === "grid") {
+              return (
+                <YouTubeCard
+                  key={post.id}
+                  post={post}
+                  onClick={() => handlePostClick(post)}
+                />
+              );
+            } else if (viewMode === "list") {
+              return (
+                <ListCard
+                  key={post.id}
+                  post={post}
+                  onClick={() => handlePostClick(post)}
+                />
+              );
+            } else {
+              return (
+                <CompactCard
+                  key={post.id}
+                  post={post}
+                  onClick={() => handlePostClick(post)}
+                />
+              );
+            }
+          })}
         </div>
       )}
 
-      {/* Post detail dialog */}
-      <Dialog open={showDetail} onOpenChange={setShowDetail}>
-        <DialogContent
-          style={{ maxWidth: 680, maxHeight: "90vh", overflowY: "auto" }}
-        >
-          {selectedPost && (
-            <>
-              <DialogHeader>
-                <DialogTitle
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    fontSize: 16,
-                  }}
-                >
-                  Post details
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 400,
-                      color: "var(--muted-foreground)",
-                      background: "var(--secondary)",
-                      padding: "2px 8px",
-                      borderRadius: 20,
-                    }}
-                  >
-                    {format(new Date(selectedPost.published_at), "d MMM yyyy")}
-                  </span>
-                </DialogTitle>
-              </DialogHeader>
-
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 20 }}
-              >
-                {/* Media gallery */}
-                {selectedPost.media_urls &&
-                  selectedPost.media_urls.length > 0 && (
-                    <div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: "var(--muted-foreground)",
-                          letterSpacing: "0.05em",
-                          textTransform: "uppercase",
-                          marginBottom: 8,
-                        }}
-                      >
-                        Media
-                      </div>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns:
-                            "repeat(auto-fill, minmax(160px, 1fr))",
-                          gap: 8,
-                        }}
-                      >
-                        {selectedPost.media_urls.map((url, i) => (
-                          <div
-                            key={i}
-                            style={{
-                              borderRadius: 8,
-                              overflow: "hidden",
-                              background: "var(--muted)",
-                            }}
-                          >
-                            {url.match(/\.(mp4|webm|ogg)$/i) ? (
-                              <video
-                                src={url}
-                                controls
-                                style={{
-                                  width: "100%",
-                                  maxHeight: 120,
-                                  objectFit: "contain",
-                                }}
-                              />
-                            ) : (
-                              <img
-                                src={url}
-                                alt={`Media ${i + 1}`}
-                                style={{
-                                  width: "100%",
-                                  height: 120,
-                                  objectFit: "cover",
-                                }}
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                {/* Content */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "var(--muted-foreground)",
-                      letterSpacing: "0.05em",
-                      textTransform: "uppercase",
-                      marginBottom: 8,
-                    }}
-                  >
-                    Content
-                  </div>
-                  <div
-                    style={{
-                      background: "var(--muted)",
-                      borderRadius: 8,
-                      padding: "12px 14px",
-                      fontSize: 13,
-                      color: "var(--foreground)",
-                      lineHeight: 1.6,
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {selectedPost.content}
-                  </div>
-                </div>
-
-                {/* Platform performance */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "var(--muted-foreground)",
-                      letterSpacing: "0.05em",
-                      textTransform: "uppercase",
-                      marginBottom: 10,
-                    }}
-                  >
-                    Platform performance
-                  </div>
-                  {selectedPost.published_posts?.map((pp, i) => (
-                    <PlatformPerfCard key={i} pp={pp} />
-                  ))}
-                </div>
-
-                {/* Raw debug */}
-                {selectedPost.published_posts?.some(
-                  (pp) => pp.raw_response,
-                ) && (
-                  <details style={{ fontSize: 12 }}>
-                    <summary
-                      style={{
-                        cursor: "pointer",
-                        color: "var(--muted-foreground)",
-                        userSelect: "none",
-                      }}
-                    >
-                      Raw API response (debug)
-                    </summary>
-                    <pre
-                      style={{
-                        marginTop: 8,
-                        padding: 10,
-                        background: "var(--muted)",
-                        borderRadius: 8,
-                        overflow: "auto",
-                        maxHeight: 200,
-                        fontSize: 11,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {JSON.stringify(
-                        selectedPost.published_posts[0]?.raw_response,
-                        null,
-                        2,
-                      )}
-                    </pre>
-                  </details>
-                )}
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Video Player Modal */}
+      {selectedPost && (
+        <VideoPlayer
+          post={selectedPost}
+          onClose={handleClosePlayer}
+          onNext={handleNext}
+          onPrevious={handlePrevious}
+          hasNext={getCurrentIndex() < filtered.length - 1}
+          hasPrevious={getCurrentIndex() > 0}
+        />
+      )}
     </div>
   );
 }
