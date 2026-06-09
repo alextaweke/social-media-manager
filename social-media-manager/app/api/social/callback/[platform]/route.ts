@@ -117,7 +117,9 @@ async function exchangeFacebookToken(code: string) {
     "https://graph.facebook.com/v25.0/oauth/access_token",
     {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
       body: new URLSearchParams({
         client_id: process.env.FACEBOOK_CLIENT_ID!,
         client_secret: process.env.FACEBOOK_CLIENT_SECRET!,
@@ -128,11 +130,11 @@ async function exchangeFacebookToken(code: string) {
   );
 
   const tokenData = await tokenResponse.json();
+
   if (!tokenResponse.ok) {
     throw new Error(tokenData.error?.message);
   }
 
-  // IMPORTANT: Get pages (not /me)
   const pagesResponse = await fetch(
     `https://graph.facebook.com/v25.0/me/accounts?access_token=${tokenData.access_token}`,
   );
