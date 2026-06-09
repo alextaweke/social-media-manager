@@ -25,8 +25,8 @@ const oauthPlatforms = {
     clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
   },
   facebook: {
-    authUrl: "https://www.facebook.com/v18.0/dialog/oauth",
-    tokenUrl: "https://graph.facebook.com/v18.0/oauth/access_token",
+    authUrl: "https://www.facebook.com/v25.0/dialog/oauth",
+    tokenUrl: "https://graph.facebook.com/v25.0/oauth/access_token",
     scope: "pages_manage_posts pages_read_engagement instagram_basic",
     clientId: process.env.FACEBOOK_CLIENT_ID!,
     clientSecret: process.env.FACEBOOK_CLIENT_SECRET!,

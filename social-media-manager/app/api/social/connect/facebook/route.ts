@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     try {
       // Use only fields that are guaranteed to exist
       const verifyResponse = await fetch(
-        `https://graph.facebook.com/v18.0/${pageId}?fields=id,name&access_token=${accessToken}`,
+        `https://graph.facebook.com/v25.0/${pageId}?fields=id,name&access_token=${accessToken}`,
       );
 
       const verifyData = await verifyResponse.json();
