@@ -32,14 +32,9 @@ export default function SocialAuthButtons({
 
     try {
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: provider,
+        provider: "facebook",
         options: {
           redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/api/auth/callback`,
-          queryParams: {
-            access_type: "offline",
-            prompt: "consent",
-          },
-          scopes: provider === "google" ? "email profile" : undefined,
         },
       });
 
