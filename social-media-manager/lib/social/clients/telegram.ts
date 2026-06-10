@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* lib/social/clients/telegram.ts */
 
 export class TelegramClient {
   private botToken: string;
@@ -14,24 +15,28 @@ export class TelegramClient {
   }
 
   private async telegramRequest(method: string, data: any) {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-
-    const response = await fetch(`${baseUrl}/api/telegram/proxy`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetch(
+      `https://api.telegram.org/bot${this.botToken}/${method}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data || {}),
       },
-      body: JSON.stringify({
-        botToken: this.botToken,
-        method,
-        data,
-      }),
-    });
+    );
 
-    const result = await response.json();
+    const text = await response.text();
 
-    if (!response.ok || !result.success) {
-      throw new Error(result.error || `Telegram ${method} failed`);
+    let result;
+    try {
+      result = text ? JSON.parse(text) : null;
+    } catch {
+      throw new Error(`Telegram returned invalid JSON: ${text}`);
+    }
+
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.description || `Telegram ${method} failed`);
     }
 
     return result.result;
@@ -76,23 +81,15 @@ export class TelegramClient {
   }
 
   async testConnection() {
-    try {
-      const bot = await this.telegramRequest("getMe", {});
+    const bot = await this.telegramRequest("getMe", {});
+    const chat = await this.telegramRequest("getChat", {
+      chat_id: this.chatId,
+    });
 
-      const chat = await this.telegramRequest("getChat", {
-        chat_id: this.chatId,
-      });
-
-      return {
-        success: true,
-        bot,
-        chat,
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
+    return {
+      success: true,
+      bot,
+      chat,
+    };
   }
 }
