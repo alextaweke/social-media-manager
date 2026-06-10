@@ -1,90 +1,69 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit,
-  retries = 3,
-): Promise<Response> {
-  let lastError: Error | null = null;
+async function fetchWithRetry(url: string, options: RequestInit, retries = 3) {
+  let lastError: any;
 
-  for (let attempt = 1; attempt <= retries; attempt++) {
+  for (let i = 0; i < retries; i++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
-      const response = await fetch(url, {
+      const res = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
-      return response;
-    } catch (error: any) {
-      lastError = error;
-      console.error(`Facebook proxy attempt ${attempt} failed:`, {
-        message: error?.message,
-        code: error?.cause?.code,
-        errno: error?.cause?.errno,
-      });
-
-      if (attempt < retries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-      }
+      clearTimeout(timeout);
+      return res;
+    } catch (err) {
+      lastError = err;
+      await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
     }
   }
 
-  throw lastError || new Error("Facebook API request failed");
-}
-
-function getSafeUrlForLog(url: string) {
-  const safeUrl = new URL(url);
-  if (safeUrl.searchParams.has("access_token")) {
-    safeUrl.searchParams.set("access_token", "***hidden***");
-  }
-  return safeUrl.toString();
+  throw lastError;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const {
       endpoint,
-      method = "GET",
+      method = "POST",
       data,
       accessToken,
     } = await request.json();
 
     if (!endpoint) {
+      return NextResponse.json({ error: "Endpoint required" }, { status: 400 });
+    }
+
+    if (!accessToken) {
       return NextResponse.json(
-        { error: "Endpoint is required" },
+        { error: "Missing Facebook access token" },
         { status: 400 },
       );
     }
 
+    console.log("Facebook proxy request:", {
+      endpoint,
+      tokenPreview: accessToken.slice(0, 15),
+    });
+
     let url = `https://graph.facebook.com/v25.0/${endpoint}`;
 
-    // Build query parameters
     const params = new URLSearchParams();
-    if (accessToken) {
-      params.append("access_token", accessToken);
-    }
+    params.append("access_token", accessToken);
 
     if (method === "GET" && data) {
-      Object.keys(data).forEach((key) => {
-        params.append(key, data[key]);
-      });
+      Object.keys(data).forEach((k) => params.append(k, data[k]));
     }
 
     if (params.toString()) {
       url += `?${params.toString()}`;
     }
 
-    console.log("Facebook Proxy Request:", {
-      url: getSafeUrlForLog(url),
-      method,
-    });
-
-    const fetchOptions: RequestInit = {
+    const options: RequestInit = {
       method,
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -92,84 +71,32 @@ export async function POST(request: NextRequest) {
     };
 
     if (method === "POST" && data) {
-      const formData = new URLSearchParams();
-      Object.keys(data).forEach((key) => {
-        formData.append(key, data[key]);
-      });
-      if (accessToken) {
-        formData.append("access_token", accessToken);
-      }
-      fetchOptions.body = formData.toString();
+      const body = new URLSearchParams();
+      Object.keys(data).forEach((k) => body.append(k, data[k]));
+
+      body.append("access_token", accessToken);
+      options.body = body.toString();
     }
 
-    const response = await fetchWithRetry(url, fetchOptions);
-    const responseData = await response.json();
+    const response = await fetchWithRetry(url, options);
+    const result = await response.json();
 
-    console.log("Facebook Proxy Response Status:", response.status);
+    if (!response.ok) {
+      console.error("Facebook API error:", result);
+    }
 
     return NextResponse.json({
       success: response.ok,
       status: response.status,
-      data: responseData,
+      data: result,
     });
   } catch (error: any) {
-    console.error("Facebook Proxy Error:", error);
+    console.error("Facebook proxy error:", error);
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Failed to connect to Facebook API",
-        details: error.cause?.message,
+        error: error.message,
       },
-      { status: 500 },
-    );
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const searchParams = request.nextUrl.searchParams;
-    const endpoint = searchParams.get("endpoint");
-    const accessToken = searchParams.get("accessToken");
-
-    if (!endpoint) {
-      return NextResponse.json(
-        { error: "Endpoint is required" },
-        { status: 400 },
-      );
-    }
-
-    let url = `https://graph.facebook.com/v25.0/${endpoint}`;
-    const params = new URLSearchParams();
-
-    if (accessToken) {
-      params.append("access_token", accessToken);
-    }
-
-    // Add all other params
-    searchParams.forEach((value, key) => {
-      if (key !== "endpoint" && key !== "accessToken") {
-        params.append(key, value);
-      }
-    });
-
-    if (params.toString()) {
-      url += `?${params.toString()}`;
-    }
-
-    console.log("Facebook Proxy GET Request:", getSafeUrlForLog(url));
-
-    const response = await fetchWithRetry(url, {});
-    const data = await response.json();
-
-    return NextResponse.json({
-      success: response.ok,
-      status: response.status,
-      data,
-    });
-  } catch (error: any) {
-    console.error("Facebook Proxy GET Error:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
       { status: 500 },
     );
   }
