@@ -7,18 +7,30 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
 
-      const res = await fetch(url, {
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, 15000);
+
+      const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
 
       clearTimeout(timeout);
-      return res;
-    } catch (err) {
-      lastError = err;
-      await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+
+      return response;
+    } catch (error) {
+      lastError = error;
+
+      console.error(
+        `Facebook request failed (attempt ${i + 1}/${retries}):`,
+        error,
+      );
+
+      if (i < retries - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
+      }
     }
   }
 
@@ -27,40 +39,52 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 3) {
 
 export async function POST(request: NextRequest) {
   try {
-    const {
-      endpoint,
-      method = "POST",
-      data,
-      accessToken,
-    } = await request.json();
+    const body = await request.json();
+
+    const { endpoint, method = "POST", data, accessToken } = body;
 
     if (!endpoint) {
-      return NextResponse.json({ error: "Endpoint required" }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Endpoint is required",
+        },
+        { status: 400 },
+      );
     }
 
     if (!accessToken) {
       return NextResponse.json(
-        { error: "Missing Facebook access token" },
+        {
+          success: false,
+          error: "Facebook access token is required",
+        },
         { status: 400 },
       );
     }
 
     console.log("Facebook proxy request:", {
       endpoint,
-      tokenPreview: accessToken.slice(0, 15),
+      method,
+      tokenPreview: `${accessToken.slice(0, 15)}...`,
     });
 
     let url = `https://graph.facebook.com/v25.0/${endpoint}`;
 
-    const params = new URLSearchParams();
-    params.append("access_token", accessToken);
+    const queryParams = new URLSearchParams();
 
-    if (method === "GET" && data) {
-      Object.keys(data).forEach((k) => params.append(k, data[k]));
-    }
+    if (method === "GET") {
+      queryParams.append("access_token", accessToken);
 
-    if (params.toString()) {
-      url += `?${params.toString()}`;
+      if (data) {
+        Object.entries(data).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            queryParams.append(key, String(value));
+          }
+        });
+      }
+
+      url += `?${queryParams.toString()}`;
     }
 
     const options: RequestInit = {
@@ -70,32 +94,94 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    if (method === "POST" && data) {
-      const body = new URLSearchParams();
-      Object.keys(data).forEach((k) => body.append(k, data[k]));
+    if (method === "POST") {
+      const formData = new URLSearchParams();
 
-      body.append("access_token", accessToken);
-      options.body = body.toString();
+      if (data) {
+        Object.entries(data).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            formData.append(key, String(value));
+          }
+        });
+      }
+
+      formData.append("access_token", accessToken);
+
+      options.body = formData.toString();
+    }
+
+    console.log("Facebook URL:", url);
+
+    if (options.body) {
+      console.log("Facebook Body:", options.body);
     }
 
     const response = await fetchWithRetry(url, options);
-    const result = await response.json();
+
+    const responseText = await response.text();
+
+    console.log("Facebook Status:", response.status);
+    console.log("Facebook Raw Response:", responseText);
+
+    // Handle empty response safely
+    if (!responseText || !responseText.trim()) {
+      return NextResponse.json(
+        {
+          success: false,
+          status: response.status,
+          error: "Facebook returned an empty response",
+        },
+        { status: 500 },
+      );
+    }
+
+    let result: any;
+
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("Failed to parse Facebook response:", parseError);
+
+      return NextResponse.json(
+        {
+          success: false,
+          status: response.status,
+          error: "Facebook returned invalid JSON",
+          rawResponse: responseText,
+        },
+        { status: 500 },
+      );
+    }
 
     if (!response.ok) {
-      console.error("Facebook API error:", result);
+      console.error("Facebook API Error:", result);
+
+      return NextResponse.json(
+        {
+          success: false,
+          status: response.status,
+          error:
+            result?.error?.message ||
+            result?.message ||
+            "Facebook API request failed",
+          data: result,
+        },
+        { status: response.status },
+      );
     }
 
     return NextResponse.json({
-      success: response.ok,
+      success: true,
       status: response.status,
       data: result,
     });
   } catch (error: any) {
     console.error("Facebook proxy error:", error);
+
     return NextResponse.json(
       {
         success: false,
-        error: error.message,
+        error: error?.message || "Unknown error occurred",
       },
       { status: 500 },
     );
