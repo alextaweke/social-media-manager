@@ -36,31 +36,55 @@ export async function POST(request: NextRequest) {
 
     const url = `https://api.telegram.org/bot${botToken}/${method}`;
 
+    // ✅ IMPORTANT: use form-data format, NOT JSON
+    const formData = new URLSearchParams();
+
+    if (data && typeof data === "object") {
+      Object.entries(data).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, String(value));
+        }
+      });
+    }
+
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: JSON.stringify(data || {}),
+      body: formData.toString(),
     });
 
     const text = await response.text();
 
+    console.log("Telegram status:", response.status);
+    console.log("Telegram raw response:", text);
+
+    if (!text) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Empty response from Telegram API",
+        },
+        { status: 500 },
+      );
+    }
+
     let result;
     try {
-      result = text ? JSON.parse(text) : null;
+      result = JSON.parse(text);
     } catch {
       return NextResponse.json(
         {
           success: false,
-          error: "Telegram returned invalid JSON",
+          error: "Invalid JSON from Telegram",
           raw: text,
         },
         { status: 500 },
       );
     }
 
-    if (!response.ok || !result?.ok) {
+    if (!response.ok || !result.ok) {
       return NextResponse.json(
         {
           success: false,
