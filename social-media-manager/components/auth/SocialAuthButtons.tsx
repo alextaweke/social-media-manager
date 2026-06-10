@@ -6,13 +6,7 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import {
-  FaTwitter,
-  FaLinkedin,
-  FaFacebook,
-  FaChrome,
-  FaGithub,
-} from "react-icons/fa";
+import { FaTwitter, FaLinkedin, FaChrome, FaGithub } from "react-icons/fa";
 
 interface SocialAuthButtonsProps {
   isLoading: boolean;
@@ -42,11 +36,6 @@ export default function SocialAuthButtons({
       if (provider === "google") {
         options.queryParams = { access_type: "offline", prompt: "consent" };
         options.scopes = "email profile";
-      }
-
-      if (provider === "facebook") {
-        // Supabase passes these scopes to Facebook's OAuth dialog
-        options.scopes = "email,public_profile";
       }
 
       const { error } = await supabase.auth.signInWithOAuth({
@@ -85,12 +74,6 @@ export default function SocialAuthButtons({
       id: "linkedin" as const,
       name: "LinkedIn",
       Icon: FaLinkedin,
-      color: "hover:bg-blue-50 dark:hover:bg-blue-950/10",
-    },
-    {
-      id: "facebook" as const,
-      name: "Facebook",
-      Icon: FaFacebook,
       color: "hover:bg-blue-50 dark:hover:bg-blue-950/10",
     },
   ];
