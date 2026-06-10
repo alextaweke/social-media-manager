@@ -48,5 +48,7 @@ export async function middleware(request: NextRequest) {
 
 // IMPORTANT: limit middleware scope
 export const config = {
-  matcher: ["/dashboard/:path*", "/login"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|api/social/callback|api/auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };

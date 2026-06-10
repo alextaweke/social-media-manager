@@ -105,8 +105,7 @@ export async function POST(request: Request) {
           .eq("user_id", user.id)
           .eq("platform", platform)
           .eq("is_active", true)
-          .single();
-
+          .maybeSingle();
         if (accountError || !socialAccount) {
           console.error(`Account error for ${platform}:`, accountError);
           throw new Error(`${platform} account not connected`);
