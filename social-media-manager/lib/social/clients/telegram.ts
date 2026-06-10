@@ -30,19 +30,24 @@ export class TelegramClient {
 
     const text = await response.text();
 
-    if (!text) {
-      throw new Error("Empty response from Telegram proxy");
+    let result: any;
+    try {
+      result = text ? JSON.parse(text) : null;
+    } catch (e) {
+      console.error("Telegram raw response:", text);
+      throw new Error("Telegram proxy returned invalid JSON");
     }
 
-    const result = JSON.parse(text);
+    if (!response.ok) {
+      throw new Error(result?.error || `Telegram ${method} failed`);
+    }
 
-    if (!result.success) {
-      throw new Error(result.error || `Telegram ${method} failed`);
+    if (!result?.success) {
+      throw new Error(result?.error || `Telegram ${method} failed`);
     }
 
     return result.result;
   }
-
   async sendMessage(text: string, parseMode: "HTML" | "Markdown" = "HTML") {
     const maxLength = 4096;
 

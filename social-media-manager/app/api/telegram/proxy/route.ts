@@ -34,72 +34,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const token = botToken.trim();
+    const url = `https://api.telegram.org/bot${botToken}/${method}`;
 
-    for (const mirror of TELEGRAM_MIRRORS) {
-      try {
-        const url = `${mirror}/bot${token}/${method}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data || {}),
+    });
 
-        // ✅ FIX: use form-data instead of JSON
-        const form = new URLSearchParams();
+    const text = await response.text();
 
-        if (data) {
-          Object.entries(data).forEach(([k, v]) => {
-            if (v !== undefined && v !== null) {
-              form.append(k, String(v));
-            }
-          });
-        }
-
-        const response = await fetchWithRetry(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: form.toString(),
-        });
-
-        const text = await response?.text();
-
-        console.log("Telegram status:", response?.status);
-        console.log("Telegram response:", text);
-
-        // ✅ SAFE PARSING
-        if (!text) {
-          throw new Error("Empty response from Telegram");
-        }
-
-        const result = JSON.parse(text);
-
-        if (response?.ok && result.ok) {
-          return NextResponse.json({
-            success: true,
-            result: result.result,
-            usedMirror: mirror,
-          });
-        }
-
-        return NextResponse.json(
-          {
-            success: false,
-            error: result.description || "Telegram API error",
-          },
-          { status: 400 },
-        );
-      } catch (err) {
-        console.log(`Mirror failed: ${mirror}`, err);
-      }
+    let result;
+    try {
+      result = text ? JSON.parse(text) : null;
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Telegram returned invalid JSON",
+          raw: text,
+        },
+        { status: 500 },
+      );
     }
 
-    return NextResponse.json(
-      { success: false, error: "All Telegram mirrors failed" },
-      { status: 500 },
-    );
+    if (!response.ok || !result?.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result?.description || "Telegram API error",
+          raw: result,
+        },
+        { status: response.status },
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      result: result.result,
+    });
   } catch (error: any) {
+    console.error("Telegram proxy error:", error);
+
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Telegram proxy error",
+        error: error.message || "Unknown error",
       },
       { status: 500 },
     );
