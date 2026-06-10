@@ -163,20 +163,21 @@ export async function POST(request: Request) {
             }
             break;
           case "facebook":
-            console.log(
-              "Facebook posting - Page ID:",
-              socialAccount.platform_user_id,
-            );
+            console.log("Facebook account:", {
+              pageId: socialAccount.platform_user_id,
+              tokenLength: socialAccount.access_token?.length,
+              expiresAt: socialAccount.expires_at,
+            });
+
             const facebook = new FacebookClient(
               socialAccount.access_token,
               socialAccount.platform_user_id,
             );
-            if (mediaUrls && mediaUrls.length > 0) {
-              result = await facebook.post(content, mediaUrls[0]);
-            } else {
-              result = await facebook.post(content);
-            }
-            console.log("Facebook post successful:", result.id);
+
+            result = await facebook.post(content, mediaUrls?.[0]);
+
+            console.log("Facebook post successful:", result);
+
             break;
           default:
             throw new Error(`Unsupported platform: ${platform}`);
