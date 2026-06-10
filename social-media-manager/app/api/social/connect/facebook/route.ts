@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
     console.log("Facebook connection API called");
 
     const supabase = await createClient();
+
     const {
       data: { user },
       error: userError,
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ✅ Verify token with Facebook
+    // 1. Verify page + token
     const verifyResponse = await fetch(
       `https://graph.facebook.com/v25.0/${pageId}?fields=id,name,access_token&access_token=${accessToken}`,
     );
@@ -37,30 +38,34 @@ export async function POST(request: NextRequest) {
       throw new Error(verifyData.error?.message || "Invalid Facebook token");
     }
 
-    // 🚨 CRITICAL: ensure we use PAGE TOKEN (not user token)
-    const pageAccessToken = accessToken;
-
     console.log("Facebook page verified:", verifyData.name);
+
+    // 2. IMPORTANT: page access token comes from verify response (if available)
+    const pageAccessToken = verifyData.access_token || accessToken;
 
     const accountData = {
       user_id: user.id,
       platform: "facebook",
       platform_user_id: pageId,
-      platform_username: verifyData.name,
+      platform_username: pageName || verifyData.name,
       access_token: pageAccessToken,
       refresh_token: null,
-      expires_at: null, // PAGE tokens are long-lived, don't fake expiry
+      expires_at: null, // page tokens usually long-lived
       is_active: true,
       updated_at: new Date().toISOString(),
     };
 
-    // ✅ FIX: use maybeSingle to avoid crashes
-    const { data: existingAccount } = await supabase
+    // 3. Upsert safely
+    const { data: existingAccount, error: fetchError } = await supabase
       .from("social_accounts")
       .select("id")
       .eq("user_id", user.id)
       .eq("platform", "facebook")
       .maybeSingle();
+
+    if (fetchError) {
+      console.error("DB fetch error:", fetchError);
+    }
 
     let result;
 
@@ -74,6 +79,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (result.error) {
+      console.error("DB error:", result.error);
       return NextResponse.json(
         { error: result.error.message },
         { status: 500 },
@@ -90,6 +96,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error("Facebook connection error:", error);
+
     return NextResponse.json(
       { error: error.message || "Failed to connect Facebook" },
       { status: 500 },
