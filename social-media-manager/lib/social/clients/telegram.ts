@@ -12,7 +12,6 @@ export class TelegramClient {
     this.botToken = botToken.trim();
     this.chatId = chatId.toString();
   }
-
   private async telegramRequest(method: string, data: any) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -31,6 +30,7 @@ export class TelegramClient {
     const text = await response.text();
 
     let result: any;
+
     try {
       result = text ? JSON.parse(text) : null;
     } catch (e) {
@@ -38,16 +38,19 @@ export class TelegramClient {
       throw new Error("Telegram proxy returned invalid JSON");
     }
 
-    if (!result.success) {
-      console.error("Telegram full error:", result);
-
-      throw new Error(
-        `Telegram error: ${result.error || "unknown error"} (code: ${result.code || "no code"})`,
-      );
+    // 🚨 HARD GUARD (THIS FIXES YOUR CRASH)
+    if (!result) {
+      throw new Error("Telegram proxy returned empty response");
     }
 
-    if (!result?.success) {
-      throw new Error(result?.error || `Telegram ${method} failed`);
+    if (result.success !== true) {
+      console.error("Telegram error response:", result);
+
+      throw new Error(
+        result.error
+          ? `Telegram error: ${result.error}`
+          : "Telegram request failed",
+      );
     }
 
     return result.result;

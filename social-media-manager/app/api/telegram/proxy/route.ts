@@ -84,18 +84,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!result.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: result.description,
-          code: result.error_code,
-          raw: result,
-        },
-        { status: 200 },
-      );
+    if (!response.ok || !result.ok) {
+      return NextResponse.json({
+        success: false,
+        error: result?.description || "Telegram API error",
+        code: result?.error_code,
+        raw: result,
+      });
     }
-
     return NextResponse.json({
       success: true,
       result: result.result,
