@@ -14,7 +14,7 @@ export class TelegramClient {
   }
 
   private async telegramRequest(method: string, data: any) {
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
     const response = await fetch(`${baseUrl}/api/telegram/proxy`, {
       method: "POST",
@@ -28,9 +28,15 @@ export class TelegramClient {
       }),
     });
 
-    const result = await response.json();
+    const text = await response.text();
 
-    if (!response.ok || !result.success) {
+    if (!text) {
+      throw new Error("Empty response from Telegram proxy");
+    }
+
+    const result = JSON.parse(text);
+
+    if (!result.success) {
       throw new Error(result.error || `Telegram ${method} failed`);
     }
 
