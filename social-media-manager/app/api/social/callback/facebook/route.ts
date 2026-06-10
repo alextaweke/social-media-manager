@@ -14,16 +14,25 @@ export async function GET(request: NextRequest) {
   const FB_SECRET = process.env.FACEBOOK_APP_SECRET!;
 
   const buildCloseScript = (payload: object) => `
-    <!DOCTYPE html><html><body>
-    <script>
-      window.opener?.postMessage(
-        ${JSON.stringify({ source: "facebook-oauth", ...payload })},
-        "${APP_URL}"
-      );
-      window.close();
-    </script>
-    </body></html>
-  `;
+  <!DOCTYPE html><html><body>
+  <div id="msg" style="font-family:sans-serif;padding:24px;color:#333">Processing...</div>
+  <script>
+    const payload = ${JSON.stringify({ source: "facebook-oauth", ...payload })};
+    document.getElementById('msg').textContent = JSON.stringify(payload);
+    
+    const targetOrigin = "${APP_URL}";
+    console.log('Posting to:', targetOrigin, 'opener:', !!window.opener);
+    
+    if (window.opener) {
+      window.opener.postMessage(payload, targetOrigin);
+      setTimeout(() => window.close(), 500);
+    } else {
+      document.getElementById('msg').textContent = 'No opener — redirecting...';
+      setTimeout(() => { window.location.href = targetOrigin + '/dashboard'; }, 2000);
+    }
+  </script>
+  </body></html>
+`;
 
   if (error || !code) {
     return new NextResponse(
