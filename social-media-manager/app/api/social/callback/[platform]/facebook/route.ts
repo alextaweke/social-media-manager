@@ -7,11 +7,19 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get("state");
   const error = searchParams.get("error");
 
-  // Build the HTML that closes the popup and passes data to the opener
+  const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+  // Prefer the server-only var; fall back to the public one
+  const FB_APP_ID =
+    process.env.FACEBOOK_APP_ID ?? process.env.NEXT_PUBLIC_FACEBOOK_APP_ID;
+  const FB_SECRET = process.env.FACEBOOK_APP_SECRET!;
+
   const buildCloseScript = (payload: object) => `
     <!DOCTYPE html><html><body>
     <script>
-      window.opener?.postMessage(${JSON.stringify({ source: "facebook-oauth", ...payload })}, "${process.env.NEXT_PUBLIC_APP_URL}");
+      window.opener?.postMessage(
+        ${JSON.stringify({ source: "facebook-oauth", ...payload })},
+        "${APP_URL}"
+      );
       window.close();
     </script>
     </body></html>
@@ -24,8 +32,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Guard: if app ID is missing, fail clearly instead of sending a bad request to FB
+  if (!FB_APP_ID) {
+    return new NextResponse(
+      buildCloseScript({
+        success: false,
+        error: "Server misconfiguration: Facebook App ID is not set.",
+      }),
+      { headers: { "Content-Type": "text/html" } },
+    );
+  }
+
   // Validate state against cookie
-  const cookieState = request.cookies.get(`oauth_state_facebook`)?.value;
+  const cookieState = request.cookies.get("oauth_state_facebook")?.value;
   if (!cookieState || cookieState !== state) {
     return new NextResponse(
       buildCloseScript({
@@ -40,9 +59,9 @@ export async function GET(request: NextRequest) {
     // 1. Exchange code for a short-lived user access token
     const tokenRes = await fetch(
       `https://graph.facebook.com/v25.0/oauth/access_token` +
-        `?client_id=${process.env.NEXT_PUBLIC_FACEBOOK_APP_ID}` +
-        `&client_secret=${process.env.FACEBOOK_APP_SECRET}` +
-        `&redirect_uri=${encodeURIComponent(`${process.env.NEXT_PUBLIC_APP_URL}/api/social/callback/facebook`)}` +
+        `?client_id=${FB_APP_ID}` +
+        `&client_secret=${FB_SECRET}` +
+        `&redirect_uri=${encodeURIComponent(`${APP_URL}/api/social/callback/facebook`)}` +
         `&code=${code}`,
     );
     const tokenData = await tokenRes.json();
@@ -57,14 +76,14 @@ export async function GET(request: NextRequest) {
     const longLivedRes = await fetch(
       `https://graph.facebook.com/v25.0/oauth/access_token` +
         `?grant_type=fb_exchange_token` +
-        `&client_id=${process.env.NEXT_PUBLIC_FACEBOOK_APP_ID}` +
-        `&client_secret=${process.env.FACEBOOK_APP_SECRET}` +
+        `&client_id=${FB_APP_ID}` +
+        `&client_secret=${FB_SECRET}` +
         `&fb_exchange_token=${userToken}`,
     );
     const longLivedData = await longLivedRes.json();
     const longLivedUserToken: string = longLivedData.access_token || userToken;
 
-    // 3. Fetch pages this user manages (page tokens never expire!)
+    // 3. Fetch pages this user manages
     const pagesRes = await fetch(
       `https://graph.facebook.com/v25.0/me/accounts` +
         `?fields=id,name,access_token,category,picture` +
@@ -76,13 +95,7 @@ export async function GET(request: NextRequest) {
       throw new Error(pagesData.error?.message || "Failed to fetch pages");
     }
 
-    const pages: Array<{
-      id: string;
-      name: string;
-      access_token: string;
-      category: string;
-      picture?: { data: { url: string } };
-    }> = pagesData.data || [];
+    const pages = pagesData.data ?? [];
 
     if (pages.length === 0) {
       return new NextResponse(
@@ -95,7 +108,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Pass pages back to the opener — the UI will let the user pick one
     return new NextResponse(buildCloseScript({ success: true, pages }), {
       headers: { "Content-Type": "text/html" },
     });
