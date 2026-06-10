@@ -38,8 +38,12 @@ export class TelegramClient {
       throw new Error("Telegram proxy returned invalid JSON");
     }
 
-    if (!response.ok) {
-      throw new Error(result?.error || `Telegram ${method} failed`);
+    if (!result.success) {
+      console.error("Telegram full error:", result);
+
+      throw new Error(
+        `Telegram error: ${result.error || "unknown error"} (code: ${result.code || "no code"})`,
+      );
     }
 
     if (!result?.success) {
