@@ -1,108 +1,97 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 
-const TELEGRAM_MIRRORS = ["https://api.telegram.org"];
-
-async function fetchWithRetry(url: string, options: RequestInit, retries = 3) {
+// Telegram API mirrors (try different endpoints)
+const TELEGRAM_MIRRORS = ["https://api.telegram.org", "https://tg-api.i-m.dev"];
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = 3,
+): Promise<Response> {
   for (let i = 0; i < retries; i++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
+      clearTimeout(timeoutId);
       return response;
-    } catch (err) {
-      if (i === retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+    } catch (error: any) {
+      console.error(`Attempt ${i + 1} failed`);
+      console.error("Message:", error?.message);
+      console.error("Code:", error?.cause?.code);
+      console.error("Errno:", error?.cause?.errno);
+      console.error("Cause:", error?.cause);
+      if (i === retries - 1) throw error;
+      // Wait before retry
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
     }
   }
+  throw new Error("All retries failed");
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { botToken, method, data } = await request.json();
+    const body = await request.json();
+    const { botToken, method, data } = body;
 
     if (!botToken || !method) {
       return NextResponse.json(
-        { success: false, error: "Missing botToken or method" },
+        { error: "Bot token and method are required" },
         { status: 400 },
       );
     }
 
-    const url = `https://api.telegram.org/bot${botToken}/${method}`;
+    const cleanToken = botToken.trim();
+    let lastError: Error | null = null;
 
-    // ✅ IMPORTANT: use form-data format, NOT JSON
-    const formData = new URLSearchParams();
+    // Try each mirror
+    for (const mirror of TELEGRAM_MIRRORS) {
+      try {
+        const apiUrl = `${mirror}/bot${cleanToken}/${method}`;
+        console.log(`Trying mirror: ${mirror}`);
 
-    if (data && typeof data === "object") {
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          formData.append(key, String(value));
+        const response = await fetchWithRetry(apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(data || {}),
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.ok) {
+          return NextResponse.json({
+            success: true,
+            result: result.result,
+            usedMirror: mirror,
+          });
         }
-      });
+
+        if (result.description) {
+          console.log(`Mirror ${mirror} returned error:`, result.description);
+        }
+      } catch (error: any) {
+        lastError = error;
+        console.log(`Mirror ${mirror} failed:`, error.message);
+        continue;
+      }
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: formData.toString(),
-    });
-
-    const text = await response.text();
-
-    console.log("Telegram status:", response.status);
-    console.log("Telegram raw response:", text);
-
-    if (!text) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Empty response from Telegram API",
-        },
-        { status: 500 },
-      );
-    }
-
-    let result;
-    try {
-      result = JSON.parse(text);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Invalid JSON from Telegram",
-          raw: text,
-        },
-        { status: 500 },
-      );
-    }
-
-    if (!response.ok || !result.ok) {
-      return NextResponse.json({
-        success: false,
-        error: result?.description || "Telegram API error",
-        code: result?.error_code,
-        raw: result,
-      });
-    }
-    return NextResponse.json({
-      success: true,
-      result: result.result,
-    });
+    throw lastError || new Error("All Telegram API mirrors failed");
   } catch (error: any) {
-    console.error("Telegram proxy error:", error);
-
+    console.error("Proxy error:", error);
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Unknown error",
+        error: error.message || "Failed to connect to Telegram API",
+        details:
+          "Network connection to Telegram API failed. Please check your internet connection or try using a VPN.",
       },
       { status: 500 },
     );
