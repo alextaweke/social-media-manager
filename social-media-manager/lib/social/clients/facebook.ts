@@ -14,7 +14,7 @@ export class FacebookClient {
   }
 
   private getProxyUrl() {
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
     return `${baseUrl}/api/facebook/proxy`;
   }
 
