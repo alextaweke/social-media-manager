@@ -3,7 +3,13 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useState, useRef, useCallback, useEffect, type ElementType } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  type ElementType,
+} from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -71,8 +77,8 @@ interface EnhancementResult {
 
 export default function PostComposer() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([
-    "twitter",
-    "instagram",
+    "facebook",
+    "telegram",
   ]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -405,9 +411,9 @@ export default function PostComposer() {
           platforms: selectedPlatforms,
           mediaUrls,
           scheduleFor: scheduleDate || null,
-        aiGenerated: activeTab === "ai" || Boolean(aiTopic),
-        aiPrompt: aiTopic || undefined,
-      }),
+          aiGenerated: activeTab === "ai" || Boolean(aiTopic),
+          aiPrompt: aiTopic || undefined,
+        }),
       });
 
       const data = await response.json();
@@ -477,7 +483,8 @@ export default function PostComposer() {
           Create New Post
         </CardTitle>
         <CardDescription className="text-sky-100">
-          Generate, edit, preview, publish, or schedule from one focused composer.
+          Generate, edit, preview, publish, or schedule from one focused
+          composer.
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-6">

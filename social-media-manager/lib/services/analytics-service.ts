@@ -93,6 +93,7 @@ export class AnalyticsService {
         reaction_haha: 0,
         reaction_sad: 0,
         reaction_angry: 0,
+        
       };
 
       for (const item of insights.data || []) {
