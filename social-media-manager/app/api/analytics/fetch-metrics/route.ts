@@ -96,31 +96,31 @@ export async function POST(request: NextRequest) {
               post.platform_post_id,
             );
             break;
-          // case "instagram":
-          //   metrics = await AnalyticsService.fetchInstagramPostData(
-          //     account.access_token,
-          //     post.platform_post_id,
-          //   );
-          //   break;
-          // case "twitter":
-          //   metrics = await AnalyticsService.fetchTwitterPostData(
-          //     account.access_token,
-          //     post.platform_post_id,
-          //   );
-          //   break;
-          // case "linkedin":
-          //   metrics = await AnalyticsService.fetchLinkedInPostData(
-          //     account.access_token,
-          //     post.platform_post_id,
-          //   );
-          //   break;
-          // case "telegram":
-          //   metrics = await AnalyticsService.fetchTelegramPostData(
-          //     account.access_token,
-          //     account.platform_user_id,
-          //     post.platform_post_id,
-          //   );
-          //   break;
+          case "instagram":
+            metrics = await AnalyticsService.fetchInstagramPostData(
+              account.access_token,
+              post.platform_post_id,
+            );
+            break;
+          case "twitter":
+            metrics = await AnalyticsService.fetchTwitterPostData(
+              account.access_token,
+              post.platform_post_id,
+            );
+            break;
+          case "linkedin":
+            metrics = await AnalyticsService.fetchLinkedInPostData(
+              account.access_token,
+              post.platform_post_id,
+            );
+            break;
+          case "telegram":
+            metrics = await AnalyticsService.fetchTelegramPostData(
+              account.access_token,
+              account.platform_user_id,
+              post.platform_post_id,
+            );
+            break;
         }
 
         if (metrics) {
