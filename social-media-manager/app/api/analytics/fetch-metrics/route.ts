@@ -89,36 +89,62 @@ export async function POST(request: NextRequest) {
       try {
         let metrics: any = null;
 
+        // Extract the actual platform post ID from the stored value
+        let platformPostId = post.platform_post_id;
+
+        // If it's a JSON string, parse it and extract the correct platform ID
+        if (
+          typeof platformPostId === "string" &&
+          platformPostId.startsWith("{")
+        ) {
+          try {
+            const parsed = JSON.parse(platformPostId);
+            // For Facebook, extract the facebook property
+            if (parsed.facebook) {
+              platformPostId = parsed.facebook;
+            } else if (parsed[pp.platform]) {
+              platformPostId = parsed[pp.platform];
+            }
+          } catch (e) {
+            // If parsing fails, keep the original
+          }
+        }
+
+        console.log(`Fetching metrics for ${pp.platform}:`, {
+          originalPostId: post.platform_post_id,
+          extractedId: platformPostId,
+        });
+
         switch (pp.platform) {
           case "facebook":
             metrics = await AnalyticsService.fetchFacebookPostData(
               account.access_token,
-              post.platform_post_id,
+              platformPostId, // Use the extracted ID
             );
             break;
           case "instagram":
             metrics = await AnalyticsService.fetchInstagramPostData(
               account.access_token,
-              post.platform_post_id,
+              platformPostId,
             );
             break;
           case "twitter":
             metrics = await AnalyticsService.fetchTwitterPostData(
               account.access_token,
-              post.platform_post_id,
+              platformPostId,
             );
             break;
           case "linkedin":
             metrics = await AnalyticsService.fetchLinkedInPostData(
               account.access_token,
-              post.platform_post_id,
+              platformPostId,
             );
             break;
           case "telegram":
             metrics = await AnalyticsService.fetchTelegramPostData(
               account.access_token,
               account.platform_user_id,
-              post.platform_post_id,
+              platformPostId,
             );
             break;
         }
@@ -141,6 +167,7 @@ export async function POST(request: NextRequest) {
               follower_gain: metrics.follower_gain,
               last_synced: new Date().toISOString(),
               raw_response: metrics.raw_response,
+              platform_post_url: metrics.permalink,
             })
             .eq("id", pp.id);
 
@@ -154,6 +181,8 @@ export async function POST(request: NextRequest) {
               shares: metrics.shares,
               impressions: metrics.impressions,
               reach: metrics.reach,
+              clicks: metrics.clicks,
+              video_views: metrics.video_views,
             },
           });
         } else {
@@ -165,6 +194,10 @@ export async function POST(request: NextRequest) {
           });
         }
       } catch (error: any) {
+        console.error(
+          `Error processing ${pp.platform} post ${post.id}:`,
+          error,
+        );
         results.failed++;
         results.details.push({
           postId: post.id,

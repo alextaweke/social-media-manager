@@ -72,7 +72,8 @@ export async function POST(request: Request) {
     }
 
     const results = [];
-    const platformPostIds: Record<string, string> = {};
+    // Store platform_post_id as a simple string, not JSON
+    let platformPostId: string | null = null;
 
     // If scheduled, just create queue items
     if (scheduleFor) {
@@ -106,6 +107,7 @@ export async function POST(request: Request) {
           .eq("platform", platform)
           .eq("is_active", true)
           .maybeSingle();
+
         if (accountError || !socialAccount) {
           console.error(`Account error for ${platform}:`, accountError);
           throw new Error(`${platform} account not connected`);
@@ -177,17 +179,19 @@ export async function POST(request: Request) {
             result = await facebook.post(content, mediaUrls?.[0]);
 
             console.log("Facebook post successful:", result);
-
             break;
           default:
             throw new Error(`Unsupported platform: ${platform}`);
         }
 
-        // Store platform_post_id for this platform
-        platformPostIds[platform] = result.id;
+        // Store the platform_post_id as a simple string for the current platform
+        // If multiple platforms, store as JSON, but we'll use the first one as the main ID
+        if (!platformPostId) {
+          platformPostId = result.id;
+        }
 
         // Record published post
-        const { error: insertError } = await supabase
+        const { data: insertedPost, error: insertError } = await supabase
           .from("published_posts")
           .insert({
             post_id: post.id,
@@ -205,9 +209,20 @@ export async function POST(request: Request) {
             clicks: 0,
             video_views: 0,
           })
-          .select();
+          .select()
+          .single();
 
-        console.log("published_posts error:", insertError);
+        if (insertError) {
+          console.error(
+            `Error inserting into published_posts for ${platform}:`,
+            insertError,
+          );
+        } else {
+          console.log(
+            `✅ Successfully inserted published_posts for ${platform}:`,
+            insertedPost.id,
+          );
+        }
 
         results.push({
           platform,
@@ -232,16 +247,14 @@ export async function POST(request: Request) {
       finalStatus = "partially_published";
     }
 
-    // Update posts table once with all platform_post_ids
+    // Update posts table with platform_post_id as a simple string
+    // and also store platform-specific IDs in a separate JSON field if needed
     await supabase
       .from("posts")
       .update({
         status: finalStatus,
-        published_at: hasSuccess ? new Date() : null,
-        platform_post_id:
-          Object.keys(platformPostIds).length > 0
-            ? JSON.stringify(platformPostIds)
-            : null,
+        published_at: hasSuccess ? new Date().toISOString() : null,
+        platform_post_id: platformPostId, // Store as simple string, not JSON
         error_message: hasFailures
           ? results
               .filter((r) => !r.success)
