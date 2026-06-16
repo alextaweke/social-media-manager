@@ -4,9 +4,56 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
+import {
+  Heart,
+  MessageCircle,
+  Share2,
+  Eye,
+  Bookmark,
+  MousePointer,
+  Calendar,
+  Clock,
+  User,
+  ThumbsUp,
+  Smile,
+  Frown,
+  MoreHorizontal,
+  ExternalLink,
+  Image as ImageIcon,
+  Video,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  Loader2,
+  Filter,
+  Search,
+  Grid,
+  List,
+  LayoutGrid,
+  TrendingUp,
+  Award,
+  Zap,
+} from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Comment {
+  id: string;
+  message: string;
+  from: {
+    name: string;
+    id: string;
+  };
+  created_time: string;
+  like_count?: number;
+}
 
 interface Post {
   id: string;
@@ -19,8 +66,6 @@ interface Post {
 }
 
 interface PublishedPost {
-  last_synced: any;
-  published_at: any;
   id: string;
   platform: string;
   platform_post_id: string;
@@ -37,7 +82,21 @@ interface PublishedPost {
   profile_views: number;
   follower_gain: number;
   media_type?: string;
-  raw_response?: any;
+  last_synced: string;
+  published_at: string;
+  raw_response?: {
+    postData?: {
+      comments?: {
+        data?: Comment[];
+        summary?: { total_count: number };
+      };
+      reactions?: {
+        summary?: { total_count: number };
+      };
+      shares?: { count: number };
+      permalink_url?: string;
+    };
+  };
 }
 
 interface FilterOptions {
@@ -45,6 +104,7 @@ interface FilterOptions {
   platform: string;
   sortBy: string;
   sortOrder: "asc" | "desc";
+  dateRange: "all" | "today" | "week" | "month" | "year";
 }
 
 type ViewMode = "grid" | "list" | "compact";
@@ -53,36 +113,48 @@ type ViewMode = "grid" | "list" | "compact";
 
 const PLATFORM_CONFIG: Record<
   string,
-  { label: string; color: string; bg: string; icon: string }
+  { label: string; color: string; bg: string; icon: string; accent: string }
 > = {
-  facebook: { label: "Facebook", color: "#0C447C", bg: "#E6F1FB", icon: "📘" },
+  facebook: {
+    label: "Facebook",
+    color: "#1877F2",
+    bg: "#E7F3FF",
+    icon: "📘",
+    accent: "#1877F2",
+  },
   instagram: {
     label: "Instagram",
-    color: "#72243E",
-    bg: "#FBEAF0",
+    color: "#E4405F",
+    bg: "#FDE8EF",
     icon: "📷",
+    accent: "#E4405F",
   },
   twitter: {
     label: "Twitter / X",
-    color: "#185FA5",
-    bg: "#E6F1FB",
+    color: "#000000",
+    bg: "#F5F5F5",
     icon: "🐦",
+    accent: "#1DA1F2",
   },
-  linkedin: { label: "LinkedIn", color: "#042C53", bg: "#dbeafe", icon: "🔗" },
-  telegram: { label: "Telegram", color: "#0F6E56", bg: "#E1F5EE", icon: "✈️" },
+  linkedin: {
+    label: "LinkedIn",
+    color: "#0A66C2",
+    bg: "#E8F0FE",
+    icon: "🔗",
+    accent: "#0A66C2",
+  },
+  telegram: {
+    label: "Telegram",
+    color: "#26A5E4",
+    bg: "#E6F7FF",
+    icon: "✈️",
+    accent: "#26A5E4",
+  },
 };
 
-const PLATFORM_ACCENT: Record<string, string> = {
-  facebook: "#185FA5",
-  instagram: "#D4537E",
-  twitter: "#378ADD",
-  linkedin: "#042C53",
-  telegram: "#1D9E75",
-};
+// ─── Utils ────────────────────────────────────────────────────────────────────
 
-// ─── Utils Module ─────────────────────────────────────────────────────────────
-
-const MetricsUtils = {
+const Utils = {
   formatNumber(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
     if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
@@ -110,13 +182,585 @@ const MetricsUtils = {
     return this.sumField(post, "reach");
   },
 
-  postEngagementRate(post: Post): number {
+  engagementRate(post: Post): number {
     const reach = this.totalReach(post);
     return reach > 0 ? (this.totalEngagement(post) / reach) * 100 : 0;
   },
+
+  getComments(post: Post): Comment[] {
+    const pp = post.published_posts?.[0];
+    if (pp?.raw_response?.postData?.comments?.data) {
+      return pp.raw_response.postData.comments.data;
+    }
+    return [];
+  },
+
+  getCommentCount(post: Post): number {
+    const pp = post.published_posts?.[0];
+    return pp?.raw_response?.postData?.comments?.summary?.total_count || 0;
+  },
+
+  getReactionCount(post: Post): number {
+    const pp = post.published_posts?.[0];
+    return pp?.raw_response?.postData?.reactions?.summary?.total_count || 0;
+  },
+
+  getPermalink(post: Post): string {
+    const pp = post.published_posts?.[0];
+    return (
+      pp?.raw_response?.postData?.permalink_url || pp?.platform_post_url || "#"
+    );
+  },
+
+  truncateText(text: string, maxLength: number = 150): string {
+    if (!text) return "";
+    return text.length > maxLength
+      ? text.substring(0, maxLength) + "..."
+      : text;
+  },
+
+  timeAgo(date: string): string {
+    try {
+      return formatDistanceToNow(new Date(date), { addSuffix: true });
+    } catch {
+      return date;
+    }
+  },
 };
 
-// ─── YouTube-Style Video Player Component ─────────────────────────────────────
+// ─── Comment Section Component ──────────────────────────────────────────────
+
+const CommentSection: React.FC<{ comments: Comment[]; totalCount: number }> = ({
+  comments,
+  totalCount,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const displayComments = expanded ? comments : comments.slice(0, 3);
+
+  if (!comments || comments.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "16px", color: "#888" }}>
+        <MessageCircle size={20} style={{ marginBottom: 8 }} />
+        <p style={{ fontSize: 13 }}>No comments yet</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>
+          💬 Comments ({totalCount})
+        </span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {displayComments.map((comment) => (
+          <div
+            key={comment.id}
+            style={{
+              padding: "10px 12px",
+              background: "var(--secondary)",
+              borderRadius: 8,
+              border: "0.5px solid var(--border)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 4,
+              }}
+            >
+              <div
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background: "#378ADD",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "white",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {comment.from.name?.charAt(0) || "U"}
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>
+                {comment.from.name || "Unknown User"}
+              </span>
+              <span style={{ fontSize: 10, color: "#888", marginLeft: "auto" }}>
+                {Utils.timeAgo(comment.created_time)}
+              </span>
+            </div>
+            <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+              {comment.message || "No message content"}
+            </p>
+            {comment.like_count && comment.like_count > 0 && (
+              <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>
+                ❤️ {comment.like_count}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {comments.length > 3 && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            marginTop: 10,
+            fontSize: 12,
+            color: "#378ADD",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          {expanded ? "Show less" : `View all ${comments.length} comments`}
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ─── YouTube-Style Card ──────────────────────────────────────────────────────
+
+const YouTubeCard: React.FC<{
+  post: Post;
+  onClick: () => void;
+}> = ({ post, onClick }) => {
+  const hasMedia = post.media_urls && post.media_urls.length > 0;
+  const thumbnail = hasMedia ? post.media_urls[0] : null;
+  const totalViews = Utils.totalReach(post);
+  const totalLikes = Utils.sumField(post, "engagement_likes");
+  const totalComments = Utils.sumField(post, "engagement_comments");
+  const commentCount = Utils.getCommentCount(post);
+  const reactionCount = Utils.getReactionCount(post);
+  const platform = post.published_posts?.[0]?.platform || "facebook";
+  const config = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.facebook;
+  const date = format(new Date(post.published_at), "MMM d, yyyy");
+  const engagementRate = Utils.engagementRate(post);
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+        background: "var(--card)",
+        borderRadius: 12,
+        overflow: "hidden",
+        border: "0.5px solid var(--border)",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "translateY(-4px)";
+        e.currentTarget.style.boxShadow = "0 8px 25px rgba(0,0,0,0.1)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.05)";
+      }}
+    >
+      {/* Thumbnail */}
+      <div
+        style={{
+          position: "relative",
+          background: "#0f0f0f",
+          aspectRatio: "16/9",
+        }}
+      >
+        {thumbnail ? (
+          thumbnail.match(/\.(mp4|webm|ogg|mov|avi)$/i) ? (
+            <div
+              style={{ position: "relative", width: "100%", height: "100%" }}
+            >
+              <video
+                src={thumbnail}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                muted
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  background: "rgba(0,0,0,0.7)",
+                  borderRadius: "50%",
+                  padding: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Play size={24} fill="white" color="white" />
+              </div>
+            </div>
+          ) : (
+            <img
+              src={thumbnail}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          )
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 48,
+              color: "#333",
+            }}
+          >
+            📄
+          </div>
+        )}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 8,
+            right: 8,
+            background: "rgba(0,0,0,0.85)",
+            padding: "2px 8px",
+            borderRadius: 4,
+            fontSize: 11,
+            color: "white",
+          }}
+        >
+          {totalViews.toLocaleString()} views
+        </div>
+        <div
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 8,
+            background: config.bg,
+            color: config.color,
+            padding: "2px 10px",
+            borderRadius: 4,
+            fontSize: 11,
+            fontWeight: 600,
+          }}
+        >
+          {config.icon} {config.label}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{ padding: 12 }}>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 500,
+            lineHeight: 1.4,
+            marginBottom: 8,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {post.content || "Untitled Post"}
+        </div>
+
+        <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#888" }}>
+          <span>❤️ {Utils.formatNumber(totalLikes)}</span>
+          <span>💬 {Utils.formatNumber(totalComments)}</span>
+          <span style={{ color: engagementRate > 2 ? "#1D9E75" : "#888" }}>
+            📊 {engagementRate.toFixed(1)}% ER
+          </span>
+        </div>
+
+        <div
+          style={{
+            fontSize: 11,
+            color: "#666",
+            marginTop: 6,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <Calendar size={12} />
+          {date}
+        </div>
+
+        <div
+          style={{
+            marginTop: 8,
+            height: 3,
+            background: "var(--border)",
+            borderRadius: 2,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${Math.min((engagementRate / 20) * 100, 100)}%`,
+              background: engagementRate > 2 ? "#1D9E75" : "#FF6B35",
+              borderRadius: 2,
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── List Card ──────────────────────────────────────────────────────────────
+
+const ListCard: React.FC<{
+  post: Post;
+  onClick: () => void;
+}> = ({ post, onClick }) => {
+  const hasMedia = post.media_urls && post.media_urls.length > 0;
+  const thumbnail = hasMedia ? post.media_urls[0] : null;
+  const totalViews = Utils.totalReach(post);
+  const totalEngagement = Utils.totalEngagement(post);
+  const commentCount = Utils.getCommentCount(post);
+  const platform = post.published_posts?.[0]?.platform || "facebook";
+  const config = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.facebook;
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex",
+        gap: 16,
+        padding: "12px",
+        background: "var(--card)",
+        border: "0.5px solid var(--border)",
+        borderRadius: 12,
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "var(--secondary)";
+        e.currentTarget.style.transform = "translateX(4px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "var(--card)";
+        e.currentTarget.style.transform = "translateX(0)";
+      }}
+    >
+      <div
+        style={{
+          width: 160,
+          height: 90,
+          borderRadius: 8,
+          overflow: "hidden",
+          background: "#0f0f0f",
+          flexShrink: 0,
+          position: "relative",
+        }}
+      >
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 32,
+              color: "#333",
+            }}
+          >
+            📄
+          </div>
+        )}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 4,
+            right: 4,
+            background: "rgba(0,0,0,0.8)",
+            padding: "2px 6px",
+            borderRadius: 4,
+            fontSize: 10,
+            color: "white",
+          }}
+        >
+          {totalViews.toLocaleString()}
+        </div>
+        <div
+          style={{
+            position: "absolute",
+            top: 4,
+            left: 4,
+            background: config.bg,
+            color: config.color,
+            padding: "1px 8px",
+            borderRadius: 4,
+            fontSize: 10,
+            fontWeight: 600,
+          }}
+        >
+          {config.icon} {config.label}
+        </div>
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 500,
+            marginBottom: 4,
+            lineHeight: 1.3,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {post.content || "Untitled Post"}
+        </div>
+        <div style={{ display: "flex", gap: 12, fontSize: 12, color: "#888" }}>
+          <span>
+            ❤️ {Utils.formatNumber(Utils.sumField(post, "engagement_likes"))}
+          </span>
+          <span>
+            💬 {Utils.formatNumber(Utils.sumField(post, "engagement_comments"))}
+          </span>
+          <span>
+            🔄 {Utils.formatNumber(Utils.sumField(post, "engagement_shares"))}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
+          {Utils.timeAgo(post.published_at)} • {commentCount} comments
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          fontSize: 12,
+          color: "#888",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ color: "#D4537E" }}>❤️</div>
+          <div style={{ fontWeight: 600, color: "var(--foreground)" }}>
+            {Utils.formatNumber(Utils.sumField(post, "engagement_likes"))}
+          </div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ color: "#1D9E75" }}>💬</div>
+          <div style={{ fontWeight: 600, color: "var(--foreground)" }}>
+            {Utils.formatNumber(Utils.sumField(post, "engagement_comments"))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Compact Card ──────────────────────────────────────────────────────────
+
+const CompactCard: React.FC<{
+  post: Post;
+  onClick: () => void;
+}> = ({ post, onClick }) => {
+  const totalViews = Utils.totalReach(post);
+  const engagementRate = Utils.engagementRate(post);
+  const platform = post.published_posts?.[0]?.platform || "facebook";
+  const config = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.facebook;
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "8px 12px",
+        background: "var(--card)",
+        border: "0.5px solid var(--border)",
+        borderRadius: 8,
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "var(--secondary)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "var(--card)";
+      }}
+    >
+      <div
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 6,
+          overflow: "hidden",
+          background: "#0f0f0f",
+          flexShrink: 0,
+        }}
+      >
+        {post.media_urls?.[0] ? (
+          <img
+            src={post.media_urls[0]}
+            alt=""
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+              color: "#333",
+            }}
+          >
+            📄
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {post.content || "Untitled Post"}
+        </div>
+        <div style={{ fontSize: 10, color: "#888" }}>
+          {config.icon} {totalViews.toLocaleString()} views •{" "}
+          {engagementRate.toFixed(1)}% ER
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10, color: "#666" }}>
+        {format(new Date(post.published_at), "MMM d")}
+      </div>
+    </div>
+  );
+};
+
+// ─── Video Player Modal with Comments ──────────────────────────────────────
 
 const VideoPlayer: React.FC<{
   post: Post | null;
@@ -127,7 +771,10 @@ const VideoPlayer: React.FC<{
   hasPrevious: boolean;
 }> = ({ post, onClose, onNext, onPrevious, hasNext, hasPrevious }) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [progress, setProgress] = useState(0);
+  const [showComments, setShowComments] = useState(true);
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   if (!post) return null;
@@ -137,9 +784,33 @@ const VideoPlayer: React.FC<{
     url.match(/\.(mp4|webm|ogg|mov|avi)$/i),
   );
   const mediaUrl = hasMedia ? post.media_urls[0] : null;
-  const totalEngagement = MetricsUtils.totalEngagement(post);
-  const totalReach = MetricsUtils.totalReach(post);
-  const engagementRate = MetricsUtils.postEngagementRate(post);
+  const totalEngagement = Utils.totalEngagement(post);
+  const totalReach = Utils.totalReach(post);
+  const engagementRate = Utils.engagementRate(post);
+  const comments = Utils.getComments(post);
+  const commentCount = Utils.getCommentCount(post);
+  const reactionCount = Utils.getReactionCount(post);
+  const permalink = Utils.getPermalink(post);
+  const platform = post.published_posts?.[0]?.platform || "facebook";
+  const config = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.facebook;
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
 
   return (
     <div
@@ -169,15 +840,19 @@ const VideoPlayer: React.FC<{
           from { transform: translateY(20px); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
         }
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+        }
       `}</style>
 
       <div
         style={{
-          width: "90vw",
-          maxWidth: 1200,
-          height: "80vh",
+          width: "95vw",
+          maxWidth: 1400,
+          height: "90vh",
           background: "#0f0f0f",
-          borderRadius: 12,
+          borderRadius: 16,
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
@@ -188,14 +863,15 @@ const VideoPlayer: React.FC<{
         <div
           style={{
             padding: "12px 20px",
-            background: "#1a1a1a",
+            background: "rgba(20,20,20,0.95)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
             borderBottom: "1px solid #2a2a2a",
+            flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
               onClick={onPrevious}
               disabled={!hasPrevious}
@@ -205,13 +881,16 @@ const VideoPlayer: React.FC<{
                 color: "white",
                 width: 32,
                 height: 32,
-                borderRadius: 6,
+                borderRadius: 8,
                 cursor: hasPrevious ? "pointer" : "not-allowed",
-                opacity: hasPrevious ? 1 : 0.5,
-                fontSize: 18,
+                opacity: hasPrevious ? 1 : 0.3,
+                fontSize: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              ←
+              <ChevronLeft size={18} />
             </button>
             <button
               onClick={onNext}
@@ -222,55 +901,181 @@ const VideoPlayer: React.FC<{
                 color: "white",
                 width: 32,
                 height: 32,
-                borderRadius: 6,
+                borderRadius: 8,
                 cursor: hasNext ? "pointer" : "not-allowed",
-                opacity: hasNext ? 1 : 0.5,
-                fontSize: 18,
+                opacity: hasNext ? 1 : 0.3,
+                fontSize: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              →
+              <ChevronRight size={18} />
             </button>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "#2a2a2a",
-              border: "none",
-              color: "white",
-              width: 32,
-              height: 32,
-              borderRadius: 6,
-              cursor: "pointer",
-              fontSize: 20,
-            }}
-          >
-            ✕
-          </button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 12, color: config.color }}>
+              {config.icon} {config.label}
+            </span>
+            <button
+              onClick={() => setShowComments(!showComments)}
+              style={{
+                background: showComments ? "#378ADD" : "#2a2a2a",
+                border: "none",
+                color: "white",
+                padding: "4px 12px",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <MessageCircle size={14} />
+              {commentCount}
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                background: "#2a2a2a",
+                border: "none",
+                color: "white",
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                cursor: "pointer",
+                fontSize: 18,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Main Content */}
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
           {/* Video/Media Area */}
-          <div style={{ flex: 2, background: "#000", position: "relative" }}>
+          <div
+            style={{
+              flex: showComments ? 2 : 3,
+              background: "#000",
+              position: "relative",
+            }}
+          >
             {mediaUrl ? (
               isVideo ? (
-                <video
-                  ref={videoRef}
-                  src={mediaUrl}
+                <div
                   style={{
+                    position: "relative",
                     width: "100%",
                     height: "100%",
-                    objectFit: "contain",
                   }}
-                  controls
-                  autoPlay
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                  onTimeUpdate={(e) => {
-                    const video = e.currentTarget;
-                    setProgress((video.currentTime / video.duration) * 100);
-                  }}
-                />
+                >
+                  <video
+                    ref={videoRef}
+                    src={mediaUrl}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "contain",
+                    }}
+                    onClick={togglePlay}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                    onTimeUpdate={(e) => {
+                      const video = e.currentTarget;
+                      setProgress((video.currentTime / video.duration) * 100);
+                    }}
+                  />
+                  {/* Video Controls Overlay */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      padding: "20px",
+                      background:
+                        "linear-gradient(transparent, rgba(0,0,0,0.7))",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                  >
+                    <button
+                      onClick={togglePlay}
+                      style={{
+                        background: "rgba(255,255,255,0.2)",
+                        border: "none",
+                        color: "white",
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+                    </button>
+                    <div
+                      style={{
+                        flex: 1,
+                        height: 4,
+                        background: "rgba(255,255,255,0.2)",
+                        borderRadius: 2,
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${progress}%`,
+                          background: "#378ADD",
+                          borderRadius: 2,
+                        }}
+                      />
+                    </div>
+                    <button
+                      onClick={toggleMute}
+                      style={{
+                        background: "rgba(255,255,255,0.2)",
+                        border: "none",
+                        color: "white",
+                        width: 32,
+                        height: 32,
+                        borderRadius: "50%",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                    </button>
+                    <button
+                      style={{
+                        background: "rgba(255,255,255,0.2)",
+                        border: "none",
+                        color: "white",
+                        width: 32,
+                        height: 32,
+                        borderRadius: "50%",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Maximize size={16} />
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <img
                   src={mediaUrl}
@@ -294,7 +1099,7 @@ const VideoPlayer: React.FC<{
                   color: "#333",
                 }}
               >
-                🖼️ No Media
+                📄 No Media
               </div>
             )}
           </div>
@@ -307,6 +1112,7 @@ const VideoPlayer: React.FC<{
               overflowY: "auto",
               padding: "20px",
               borderLeft: "1px solid #2a2a2a",
+              display: showComments ? "block" : "none",
             }}
           >
             <h3
@@ -336,114 +1142,132 @@ const VideoPlayer: React.FC<{
                     background: "#2a2a2a",
                     borderRadius: 4,
                     fontSize: 11,
-                    color: PLATFORM_ACCENT[pp.platform],
+                    color: PLATFORM_CONFIG[pp.platform]?.accent || "#888",
                   }}
                 >
                   {PLATFORM_CONFIG[pp.platform]?.icon} {pp.platform}
                 </span>
               ))}
+              {permalink && permalink !== "#" && (
+                <a
+                  href={permalink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    padding: "4px 8px",
+                    background: "#2a2a2a",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: "#378ADD",
+                    textDecoration: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <ExternalLink size={12} /> View
+                </a>
+              )}
             </div>
 
+            {/* Stats Grid */}
             <div
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(2, 1fr)",
-                gap: 12,
-                marginBottom: 20,
+                gap: 8,
+                marginBottom: 16,
               }}
             >
-              <div
-                style={{
-                  background: "#2a2a2a",
-                  padding: "12px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: 24, marginBottom: 4 }}>❤️</div>
+              {[
+                {
+                  icon: "❤️",
+                  label: "Likes",
+                  value: Utils.formatNumber(
+                    Utils.sumField(post, "engagement_likes"),
+                  ),
+                  color: "#D4537E",
+                },
+                {
+                  icon: "💬",
+                  label: "Comments",
+                  value: Utils.formatNumber(
+                    Utils.sumField(post, "engagement_comments"),
+                  ),
+                  color: "#1D9E75",
+                },
+                {
+                  icon: "🔄",
+                  label: "Shares",
+                  value: Utils.formatNumber(
+                    Utils.sumField(post, "engagement_shares"),
+                  ),
+                  color: "#534AB7",
+                },
+                {
+                  icon: "👁️",
+                  label: "Reach",
+                  value: Utils.formatNumber(totalReach),
+                  color: "#378ADD",
+                },
+                {
+                  icon: "📊",
+                  label: "Engagement Rate",
+                  value: `${engagementRate.toFixed(2)}%`,
+                  color: "#FF6B35",
+                },
+                {
+                  icon: "❤️",
+                  label: "Reactions",
+                  value: Utils.formatNumber(reactionCount),
+                  color: "#FF6B35",
+                },
+              ].map((item, idx) => (
                 <div
-                  style={{ fontSize: 18, fontWeight: 600, color: "#D4537E" }}
+                  key={idx}
+                  style={{
+                    background: "#2a2a2a",
+                    padding: "10px",
+                    borderRadius: 8,
+                    textAlign: "center",
+                  }}
                 >
-                  {MetricsUtils.formatNumber(
-                    MetricsUtils.sumField(post, "engagement_likes"),
-                  )}
+                  <div style={{ fontSize: 18, marginBottom: 2 }}>
+                    {item.icon}
+                  </div>
+                  <div
+                    style={{ fontSize: 16, fontWeight: 600, color: item.color }}
+                  >
+                    {item.value}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#888" }}>
+                    {item.label}
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: "#888" }}>Likes</div>
-              </div>
-              <div
-                style={{
-                  background: "#2a2a2a",
-                  padding: "12px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: 24, marginBottom: 4 }}>💬</div>
-                <div
-                  style={{ fontSize: 18, fontWeight: 600, color: "#1D9E75" }}
-                >
-                  {MetricsUtils.formatNumber(
-                    MetricsUtils.sumField(post, "engagement_comments"),
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: "#888" }}>Comments</div>
-              </div>
-              <div
-                style={{
-                  background: "#2a2a2a",
-                  padding: "12px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: 24, marginBottom: 4 }}>🔄</div>
-                <div
-                  style={{ fontSize: 18, fontWeight: 600, color: "#534AB7" }}
-                >
-                  {MetricsUtils.formatNumber(
-                    MetricsUtils.sumField(post, "engagement_shares"),
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: "#888" }}>Shares</div>
-              </div>
-              <div
-                style={{
-                  background: "#2a2a2a",
-                  padding: "12px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                }}
-              >
-                <div style={{ fontSize: 24, marginBottom: 4 }}>👁️</div>
-                <div
-                  style={{ fontSize: 18, fontWeight: 600, color: "#378ADD" }}
-                >
-                  {MetricsUtils.formatNumber(totalReach)}
-                </div>
-                <div style={{ fontSize: 11, color: "#888" }}>Reach</div>
-              </div>
+              ))}
             </div>
 
+            {/* Engagement Rate Bar */}
             <div
               style={{
                 background: "#2a2a2a",
                 padding: "12px",
                 borderRadius: 8,
-                marginBottom: 12,
+                marginBottom: 16,
               }}
             >
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  marginBottom: 8,
+                  marginBottom: 6,
                 }}
               >
-                <span style={{ fontSize: 12, color: "#888" }}>
+                <span style={{ fontSize: 11, color: "#888" }}>
                   Engagement Rate
                 </span>
                 <span
-                  style={{ fontSize: 14, fontWeight: 600, color: "#378ADD" }}
+                  style={{ fontSize: 13, fontWeight: 600, color: "#378ADD" }}
                 >
                   {engagementRate.toFixed(2)}%
                 </span>
@@ -460,15 +1284,26 @@ const VideoPlayer: React.FC<{
                   style={{
                     height: "100%",
                     width: `${Math.min((engagementRate / 20) * 100, 100)}%`,
-                    background: "#378ADD",
+                    background: engagementRate > 2 ? "#1D9E75" : "#FF6B35",
                     borderRadius: 2,
                   }}
                 />
               </div>
             </div>
 
-            <div style={{ fontSize: 11, color: "#666", textAlign: "center" }}>
-              Published {format(new Date(post.published_at), "MMMM d, yyyy")}
+            {/* Comments Section */}
+            <CommentSection comments={comments} totalCount={commentCount} />
+
+            <div
+              style={{
+                fontSize: 10,
+                color: "#444",
+                textAlign: "center",
+                marginTop: 12,
+              }}
+            >
+              Published {format(new Date(post.published_at), "MMMM d, yyyy")} •{" "}
+              {Utils.timeAgo(post.published_at)}
             </div>
           </div>
         </div>
@@ -477,357 +1312,7 @@ const VideoPlayer: React.FC<{
   );
 };
 
-// ─── YouTube-Style Card Component ────────────────────────────────────────────
-
-const YouTubeCard: React.FC<{
-  post: Post;
-  onClick: () => void;
-}> = ({ post, onClick }) => {
-  const hasMedia = post.media_urls && post.media_urls.length > 0;
-  const thumbnail = hasMedia ? post.media_urls[0] : null;
-  const totalViews = MetricsUtils.totalReach(post);
-  const totalLikes = MetricsUtils.sumField(post, "engagement_likes");
-  const totalComments = MetricsUtils.sumField(post, "engagement_comments");
-  const date = format(new Date(post.published_at), "MMM d, yyyy");
-
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        cursor: "pointer",
-        transition: "transform 0.2s ease",
-      }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLDivElement).style.transform =
-          "translateY(-4px)";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
-      }}
-    >
-      {/* Thumbnail */}
-      <div
-        style={{
-          position: "relative",
-          borderRadius: 12,
-          overflow: "hidden",
-          background: "#1a1a1a",
-          aspectRatio: "16/9",
-          marginBottom: 8,
-        }}
-      >
-        {thumbnail ? (
-          <img
-            src={thumbnail}
-            alt=""
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 48,
-              color: "#333",
-            }}
-          >
-            🖼️
-          </div>
-        )}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 8,
-            right: 8,
-            background: "rgba(0,0,0,0.8)",
-            padding: "2px 6px",
-            borderRadius: 4,
-            fontSize: 11,
-            color: "white",
-          }}
-        >
-          {totalViews.toLocaleString()} views
-        </div>
-      </div>
-
-      {/* Info */}
-      <div style={{ display: "flex", gap: 12 }}>
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: "50%",
-            background: `linear-gradient(135deg, ${PLATFORM_ACCENT[post.published_posts?.[0]?.platform] || "#378ADD"}, ${
-              PLATFORM_ACCENT[post.published_posts?.[0]?.platform] || "#378ADD"
-            }88)`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 18,
-            flexShrink: 0,
-          }}
-        >
-          {PLATFORM_CONFIG[post.published_posts?.[0]?.platform]?.icon || "📱"}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 500,
-              color: "var(--foreground)",
-              marginBottom: 4,
-              lineHeight: 1.3,
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-            }}
-          >
-            {post.content || "Untitled Post"}
-          </div>
-          <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>
-            {totalLikes.toLocaleString()} likes •{" "}
-            {totalComments.toLocaleString()} comments
-          </div>
-          <div style={{ fontSize: 11, color: "#666" }}>{date}</div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── List View Card Component ────────────────────────────────────────────────
-
-const ListCard: React.FC<{
-  post: Post;
-  onClick: () => void;
-}> = ({ post, onClick }) => {
-  const hasMedia = post.media_urls && post.media_urls.length > 0;
-  const thumbnail = hasMedia ? post.media_urls[0] : null;
-  const totalViews = MetricsUtils.totalReach(post);
-  const totalEngagement = MetricsUtils.totalEngagement(post);
-
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        display: "flex",
-        gap: 16,
-        padding: "12px",
-        background: "var(--card)",
-        border: "0.5px solid var(--border)",
-        borderRadius: 12,
-        cursor: "pointer",
-        transition: "all 0.2s ease",
-      }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLDivElement).style.background =
-          "var(--secondary)";
-        (e.currentTarget as HTMLDivElement).style.transform = "translateX(4px)";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.background = "var(--card)";
-        (e.currentTarget as HTMLDivElement).style.transform = "translateX(0)";
-      }}
-    >
-      <div
-        style={{
-          width: 160,
-          height: 90,
-          borderRadius: 8,
-          overflow: "hidden",
-          background: "#1a1a1a",
-          flexShrink: 0,
-          position: "relative",
-        }}
-      >
-        {thumbnail ? (
-          <img
-            src={thumbnail}
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 32,
-              color: "#333",
-            }}
-          >
-            🖼️
-          </div>
-        )}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 4,
-            right: 4,
-            background: "rgba(0,0,0,0.8)",
-            padding: "2px 4px",
-            borderRadius: 4,
-            fontSize: 10,
-            color: "white",
-          }}
-        >
-          {totalViews.toLocaleString()}
-        </div>
-      </div>
-
-      <div style={{ flex: 1 }}>
-        <div
-          style={{
-            fontSize: 14,
-            fontWeight: 500,
-            color: "var(--foreground)",
-            marginBottom: 6,
-            lineHeight: 1.3,
-          }}
-        >
-          {post.content || "Untitled Post"}
-        </div>
-        <div style={{ display: "flex", gap: 12, marginBottom: 6 }}>
-          {post.published_posts?.slice(0, 3).map((pp, i) => (
-            <span
-              key={i}
-              style={{
-                fontSize: 10,
-                color: PLATFORM_ACCENT[pp.platform],
-              }}
-            >
-              {PLATFORM_CONFIG[pp.platform]?.icon} {pp.platform}
-            </span>
-          ))}
-        </div>
-        <div style={{ fontSize: 11, color: "#888" }}>
-          {totalEngagement.toLocaleString()} engagements •{" "}
-          {format(new Date(post.published_at), "MMM d, yyyy")}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 16, color: "#D4537E" }}>❤️</div>
-          <div style={{ fontSize: 12, fontWeight: 600 }}>
-            {MetricsUtils.formatNumber(
-              MetricsUtils.sumField(post, "engagement_likes"),
-            )}
-          </div>
-        </div>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 16, color: "#1D9E75" }}>💬</div>
-          <div style={{ fontSize: 12, fontWeight: 600 }}>
-            {MetricsUtils.formatNumber(
-              MetricsUtils.sumField(post, "engagement_comments"),
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Compact Card Component ──────────────────────────────────────────────────
-
-const CompactCard: React.FC<{
-  post: Post;
-  onClick: () => void;
-}> = ({ post, onClick }) => {
-  const totalViews = MetricsUtils.totalReach(post);
-  const engagementRate = MetricsUtils.postEngagementRate(post);
-
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "8px 12px",
-        background: "var(--card)",
-        border: "0.5px solid var(--border)",
-        borderRadius: 8,
-        cursor: "pointer",
-        transition: "all 0.2s ease",
-      }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLDivElement).style.background =
-          "var(--secondary)";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.background = "var(--card)";
-      }}
-    >
-      <div
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 6,
-          overflow: "hidden",
-          background: "#1a1a1a",
-          flexShrink: 0,
-        }}
-      >
-        {post.media_urls?.[0] ? (
-          <img
-            src={post.media_urls[0]}
-            alt=""
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 20,
-              color: "#333",
-            }}
-          >
-            🖼️
-          </div>
-        )}
-      </div>
-
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 500,
-            color: "var(--foreground)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {post.content || "Untitled Post"}
-        </div>
-        <div style={{ fontSize: 10, color: "#888" }}>
-          {totalViews.toLocaleString()} views • {engagementRate.toFixed(1)}% ER
-        </div>
-      </div>
-
-      <div style={{ fontSize: 11, color: "#666" }}>
-        {format(new Date(post.published_at), "MMM d")}
-      </div>
-    </div>
-  );
-};
-
-// ─── Filter Bar Module ───────────────────────────────────────────────────────
+// ─── Filter Bar ──────────────────────────────────────────────────────────────
 
 const FilterBar: React.FC<{
   filters: FilterOptions;
@@ -836,6 +1321,8 @@ const FilterBar: React.FC<{
   onViewModeChange: (mode: ViewMode) => void;
   totalPosts: number;
   filteredCount: number;
+  onSync: () => void;
+  isSyncing: boolean;
 }> = ({
   filters,
   viewMode,
@@ -843,31 +1330,32 @@ const FilterBar: React.FC<{
   onViewModeChange,
   totalPosts,
   filteredCount,
+  onSync,
+  isSyncing,
 }) => {
   return (
     <div
       style={{
         display: "flex",
-        gap: 12,
-        marginBottom: 20,
+        gap: 10,
         flexWrap: "wrap",
         alignItems: "center",
         padding: "12px 0",
+        borderBottom: "1px solid var(--border)",
+        marginBottom: 16,
       }}
     >
-      <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
-        <span
+      <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
+        <Search
+          size={16}
           style={{
             position: "absolute",
             left: 10,
             top: "50%",
             transform: "translateY(-50%)",
-            fontSize: 14,
             color: "var(--muted-foreground)",
           }}
-        >
-          🔍
-        </span>
+        />
         <input
           type="text"
           placeholder="Search posts..."
@@ -876,12 +1364,11 @@ const FilterBar: React.FC<{
           style={{
             height: 36,
             fontSize: 13,
-            fontFamily: "inherit",
             borderRadius: 8,
             border: "0.5px solid var(--border)",
             background: "var(--secondary)",
             color: "var(--foreground)",
-            padding: "0 10px 0 32px",
+            padding: "0 10px 0 34px",
             outline: "none",
             width: "100%",
           }}
@@ -932,7 +1419,34 @@ const FilterBar: React.FC<{
         <option value="reach">👁️ Reach</option>
       </select>
 
+      <select
+        value={filters.dateRange}
+        onChange={(e) => onFilterChange({ dateRange: e.target.value as any })}
+        style={{
+          height: 36,
+          fontSize: 13,
+          borderRadius: 8,
+          border: "0.5px solid var(--border)",
+          background: "var(--secondary)",
+          color: "var(--foreground)",
+          padding: "0 10px",
+          cursor: "pointer",
+          minWidth: 100,
+        }}
+      >
+        <option value="all">📅 All Time</option>
+        <option value="today">📆 Today</option>
+        <option value="week">📊 This Week</option>
+        <option value="month">📈 This Month</option>
+        <option value="year">📉 This Year</option>
+      </select>
+
       <button
+        onClick={() =>
+          onFilterChange({
+            sortOrder: filters.sortOrder === "desc" ? "asc" : "desc",
+          })
+        }
         style={{
           height: 36,
           width: 36,
@@ -941,19 +1455,41 @@ const FilterBar: React.FC<{
           background: "var(--secondary)",
           cursor: "pointer",
           fontSize: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-        onClick={() =>
-          onFilterChange({
-            sortOrder: filters.sortOrder === "desc" ? "asc" : "desc",
-          })
-        }
       >
         {filters.sortOrder === "desc" ? "↓" : "↑"}
       </button>
 
       <div style={{ flex: 1 }} />
 
-      {/* View Mode Toggle */}
+      <button
+        onClick={onSync}
+        disabled={isSyncing}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "6px 14px",
+          fontSize: 12,
+          fontWeight: 500,
+          borderRadius: 8,
+          cursor: isSyncing ? "not-allowed" : "pointer",
+          background: isSyncing ? "#2a2a2a" : "#378ADD",
+          color: "white",
+          border: "none",
+        }}
+      >
+        {isSyncing ? (
+          <Loader2 size={14} className="animate-spin" />
+        ) : (
+          <RefreshCw size={14} />
+        )}
+        {isSyncing ? "Syncing..." : "Sync Metrics"}
+      </button>
+
       <div
         style={{
           display: "flex",
@@ -965,22 +1501,25 @@ const FilterBar: React.FC<{
         }}
       >
         {[
-          { mode: "grid", icon: "⊞", label: "Grid" },
-          { mode: "list", icon: "☰", label: "List" },
-          { mode: "compact", icon: "≡", label: "Compact" },
+          { mode: "grid", icon: <Grid size={16} />, label: "Grid" },
+          { mode: "list", icon: <List size={16} />, label: "List" },
+          { mode: "compact", icon: <LayoutGrid size={16} />, label: "Compact" },
         ].map(({ mode, icon, label }) => (
           <button
             key={mode}
             onClick={() => onViewModeChange(mode as ViewMode)}
             style={{
-              padding: "4px 12px",
+              padding: "4px 10px",
               borderRadius: 6,
               background: viewMode === mode ? "var(--card)" : "transparent",
               border: "none",
               cursor: "pointer",
-              fontSize: 13,
               color: "var(--foreground)",
               transition: "all 0.2s ease",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 12,
             }}
             title={label}
           >
@@ -999,18 +1538,17 @@ const FilterBar: React.FC<{
           height: 36,
           display: "flex",
           alignItems: "center",
+          gap: 4,
         }}
       >
-        <strong style={{ color: "var(--foreground)", marginRight: 4 }}>
-          {filteredCount}
-        </strong>
-        of {totalPosts}
+        <strong style={{ color: "var(--foreground)" }}>{filteredCount}</strong>/{" "}
+        {totalPosts}
       </div>
     </div>
   );
 };
 
-// ─── Loading Spinner ─────────────────────────────────────────────────────────
+// ─── Loading Spinner ──────────────────────────────────────────────────────────
 
 const LoadingSpinner: React.FC = () => (
   <div
@@ -1019,21 +1557,21 @@ const LoadingSpinner: React.FC = () => (
       alignItems: "center",
       justifyContent: "center",
       minHeight: 400,
-      gap: 12,
+      gap: 16,
       flexDirection: "column",
     }}
   >
     <div
       style={{
-        width: 40,
-        height: 40,
+        width: 48,
+        height: 48,
         border: "3px solid var(--border)",
         borderTopColor: "#378ADD",
         borderRadius: "50%",
         animation: "spin 0.7s linear infinite",
       }}
     />
-    <span style={{ color: "var(--muted-foreground)", fontSize: 13 }}>
+    <span style={{ color: "var(--muted-foreground)", fontSize: 14 }}>
       Loading your content...
     </span>
     <style>{`
@@ -1051,6 +1589,7 @@ const DEFAULT_FILTERS: FilterOptions = {
   platform: "all",
   sortBy: "published_at",
   sortOrder: "desc",
+  dateRange: "all",
 };
 
 export default function PostManager() {
@@ -1061,6 +1600,7 @@ export default function PostManager() {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [filters, setFilters] = useState<FilterOptions>(DEFAULT_FILTERS);
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     fetchPosts();
@@ -1105,29 +1645,60 @@ export default function PostManager() {
 
   const applyFilters = useCallback(() => {
     let result = [...posts];
+
+    // Search
     if (filters.search) {
       const q = filters.search.toLowerCase();
-      result = result.filter((p) => p.content?.toLowerCase().includes(q));
+      result = result.filter(
+        (p) =>
+          p.content?.toLowerCase().includes(q) ||
+          p.id.toLowerCase().includes(q),
+      );
     }
+
+    // Platform
     if (filters.platform !== "all") {
       result = result.filter((p) =>
         p.published_posts?.some((pp) => pp.platform === filters.platform),
       );
     }
+
+    // Date Range
+    if (filters.dateRange !== "all") {
+      const now = new Date();
+      let startDate = new Date();
+      switch (filters.dateRange) {
+        case "today":
+          startDate = new Date(now.setHours(0, 0, 0, 0));
+          break;
+        case "week":
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case "month":
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        case "year":
+          startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+          break;
+      }
+      result = result.filter((p) => new Date(p.published_at) >= startDate);
+    }
+
+    // Sort
     result.sort((a, b) => {
       let av: number, bv: number;
       switch (filters.sortBy) {
         case "likes":
-          av = MetricsUtils.sumField(a, "engagement_likes");
-          bv = MetricsUtils.sumField(b, "engagement_likes");
+          av = Utils.sumField(a, "engagement_likes");
+          bv = Utils.sumField(b, "engagement_likes");
           break;
         case "engagement":
-          av = MetricsUtils.totalEngagement(a);
-          bv = MetricsUtils.totalEngagement(b);
+          av = Utils.totalEngagement(a);
+          bv = Utils.totalEngagement(b);
           break;
         case "reach":
-          av = MetricsUtils.totalReach(a);
-          bv = MetricsUtils.totalReach(b);
+          av = Utils.totalReach(a);
+          bv = Utils.totalReach(b);
           break;
         default:
           av = new Date(a.published_at).getTime();
@@ -1135,6 +1706,7 @@ export default function PostManager() {
       }
       return filters.sortOrder === "desc" ? bv - av : av - bv;
     });
+
     setFiltered(result);
   }, [posts, filters]);
 
@@ -1174,7 +1746,7 @@ export default function PostManager() {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div style={{ padding: "20px" }}>
+    <div style={{ padding: "20px", maxWidth: "1400px", margin: "0 auto" }}>
       {/* Header */}
       <div
         style={{
@@ -1183,37 +1755,38 @@ export default function PostManager() {
           alignItems: "center",
           flexWrap: "wrap",
           gap: 12,
-          marginBottom: 24,
-          paddingBottom: 16,
-          borderBottom: "1px solid var(--border)",
+          marginBottom: 8,
         }}
       >
         <div>
           <h1
             style={{
               fontSize: 24,
-              fontWeight: 600,
-              color: "var(--foreground)",
+              fontWeight: 700,
               margin: 0,
               display: "flex",
               alignItems: "center",
-              gap: 8,
+              gap: 10,
+              background: "linear-gradient(135deg, #378ADD, #8B5CF6)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
             }}
           >
-            <span>🎬</span> Content Studio
+            🎬 Content Studio
           </h1>
           <p
             style={{
               fontSize: 13,
               color: "var(--muted-foreground)",
-              marginTop: 4,
+              marginTop: 2,
             }}
           >
-            Track engagement and performance across all platforms
+            Track engagement and comments across all platforms
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button
+            onClick={fetchPosts}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -1227,29 +1800,59 @@ export default function PostManager() {
               background: "var(--background)",
               color: "var(--foreground)",
             }}
-            onClick={fetchPosts}
           >
             🔄 Refresh
           </button>
-          <button
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "8px 16px",
-              fontSize: 13,
-              fontWeight: 500,
-              borderRadius: 8,
-              cursor: "pointer",
-              background: "#378ADD",
-              color: "white",
-              border: "none",
-            }}
-            onClick={syncAll}
-            disabled={syncing}
-          >
-            {syncing ? "⏳ Syncing..." : "☁️ Sync Metrics"}
-          </button>
+        </div>
+      </div>
+
+      {/* Stats Summary */}
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          flexWrap: "wrap",
+          padding: "12px 0",
+          marginBottom: 8,
+        }}
+      >
+        <div style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
+          📊{" "}
+          <strong style={{ color: "var(--foreground)" }}>{posts.length}</strong>{" "}
+          total posts
+        </div>
+        <div style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
+          ❤️{" "}
+          <strong style={{ color: "var(--foreground)" }}>
+            {Utils.formatNumber(
+              posts.reduce(
+                (sum, p) => sum + Utils.sumField(p, "engagement_likes"),
+                0,
+              ),
+            )}
+          </strong>{" "}
+          total likes
+        </div>
+        <div style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
+          💬{" "}
+          <strong style={{ color: "var(--foreground)" }}>
+            {Utils.formatNumber(
+              posts.reduce(
+                (sum, p) => sum + Utils.sumField(p, "engagement_comments"),
+                0,
+              ),
+            )}
+          </strong>{" "}
+          total comments
+        </div>
+        <div style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
+          👁️{" "}
+          <strong style={{ color: "var(--foreground)" }}>
+            {Utils.formatNumber(
+              posts.reduce((sum, p) => sum + Utils.totalReach(p), 0),
+            )}
+          </strong>{" "}
+          total reach
         </div>
       </div>
 
@@ -1261,6 +1864,8 @@ export default function PostManager() {
         onViewModeChange={setViewMode}
         totalPosts={posts.length}
         filteredCount={filtered.length}
+        onSync={syncAll}
+        isSyncing={syncing}
       />
 
       {/* Content Grid */}
@@ -1277,20 +1882,23 @@ export default function PostManager() {
           <div style={{ fontSize: 64, marginBottom: 16, opacity: 0.3 }}>📭</div>
           <p
             style={{
-              fontSize: 14,
+              fontSize: 16,
               color: "var(--foreground)",
               marginBottom: 8,
             }}
           >
             No content found
           </p>
-          <p style={{ fontSize: 12, color: "var(--muted-foreground)" }}>
-            Try adjusting your filters
+          <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
+            Try adjusting your search or filters
           </p>
-          {(filters.search || filters.platform !== "all") && (
+          {(filters.search ||
+            filters.platform !== "all" ||
+            filters.dateRange !== "all") && (
             <button
+              onClick={() => setFilters(DEFAULT_FILTERS)}
               style={{
-                padding: "6px 12px",
+                padding: "6px 16px",
                 fontSize: 12,
                 borderRadius: 6,
                 border: "0.5px solid var(--border)",
@@ -1298,7 +1906,6 @@ export default function PostManager() {
                 cursor: "pointer",
                 marginTop: 12,
               }}
-              onClick={() => setFilters(DEFAULT_FILTERS)}
             >
               Clear all filters
             </button>
@@ -1310,13 +1917,13 @@ export default function PostManager() {
             display: viewMode === "grid" ? "grid" : "flex",
             gridTemplateColumns:
               viewMode === "grid"
-                ? "repeat(auto-fill, minmax(320px, 1fr))"
+                ? "repeat(auto-fill, minmax(300px, 1fr))"
                 : undefined,
             flexDirection:
               viewMode === "list" || viewMode === "compact"
                 ? "column"
                 : undefined,
-            gap: viewMode === "grid" ? 20 : 12,
+            gap: viewMode === "grid" ? 16 : 10,
           }}
         >
           {filtered.map((post) => {
