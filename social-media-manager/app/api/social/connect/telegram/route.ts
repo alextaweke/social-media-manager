@@ -2,131 +2,84 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    console.log("=== Telegram Connect API Called ===");
-
-    // Get user session
     const supabase = await createClient();
+
     const {
       data: { user },
-      error: userError,
     } = await supabase.auth.getUser();
 
-    if (userError || !user) {
-      console.error("User auth error:", userError);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
+    if (!botToken) {
       return NextResponse.json(
-        { error: "Authentication failed" },
-        { status: 401 },
-      );
-    }
-
-    console.log("User authenticated:", user.email);
-
-    // Parse request body
-    let botToken, chatId;
-    try {
-      const body = await request.json();
-      botToken = body.botToken;
-      chatId = body.chatId;
-      console.log("Received data:", { hasToken: !!botToken, chatId });
-    } catch (parseError) {
-      console.error("Failed to parse request body:", parseError);
-      return NextResponse.json(
-        { error: "Invalid request body" },
-        { status: 400 },
-      );
-    }
-
-    // Validate inputs
-    if (!chatId) {
-      return NextResponse.json(
-        { error: "Chat ID is required" },
-        { status: 400 },
-      );
-    }
-
-    // Get token from body or environment
-    let finalToken = botToken;
-    if (!finalToken) {
-      finalToken = process.env.TELEGRAM_BOT_TOKEN;
-      if (!finalToken) {
-        return NextResponse.json(
-          {
-            error:
-              "Bot token is required. Please provide a token or set TELEGRAM_BOT_TOKEN in .env.local",
-          },
-          { status: 400 },
-        );
-      }
-      console.log("Using token from environment variables");
-    }
-
-    // Save to database (without metadata column)
-    const accountData = {
-      user_id: user.id,
-      platform: "telegram",
-      platform_user_id: chatId.toString(),
-      platform_username: `telegram_${chatId}`,
-      access_token: finalToken,
-      refresh_token: null,
-      expires_at: new Date(
-        Date.now() + 365 * 24 * 60 * 60 * 1000,
-      ).toISOString(),
-      is_active: true,
-      updated_at: new Date().toISOString(),
-    };
-
-    console.log("Attempting to save account data...");
-
-    // Check if account already exists
-    const { data: existingAccount, error: findError } = await supabase
-      .from("social_accounts")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("platform", "telegram")
-      .single();
-
-    if (findError && findError.code !== "PGRST116") {
-      console.error("Error checking existing account:", findError);
-    }
-
-    let result;
-    if (existingAccount) {
-      // Update existing
-      result = await supabase
-        .from("social_accounts")
-        .update(accountData)
-        .eq("id", existingAccount.id);
-    } else {
-      // Insert new
-      result = await supabase.from("social_accounts").insert([accountData]); // Note: array syntax
-    }
-
-    if (result.error) {
-      console.error("Database error:", result.error);
-      return NextResponse.json(
-        {
-          error: `Database error: ${result.error.message}`,
-        },
+        { error: "Bot not configured" },
         { status: 500 },
       );
     }
 
-    console.log("Telegram account connected successfully!");
+    // 1. Get updates from Telegram
+    const res = await fetch(
+      `https://api.telegram.org/bot${botToken}/getUpdates`,
+    );
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      return NextResponse.json(
+        { error: "Failed to fetch Telegram updates" },
+        { status: 500 },
+      );
+    }
+
+    // 2. Find channel/group where bot is added
+    const chat = data.result
+      ?.map((u: any) => u.my_chat_member?.chat)
+      .find(Boolean);
+
+    if (!chat) {
+      return NextResponse.json(
+        {
+          error: "No Telegram channel found. Add bot as admin first.",
+        },
+        { status: 400 },
+      );
+    }
+
+    // 3. Save into YOUR existing table
+    const { error } = await supabase.from("social_accounts").upsert(
+      {
+        user_id: user.id,
+        platform: "telegram",
+        platform_user_id: chat.id.toString(),
+        platform_username: chat.title,
+        access_token: botToken, // optional (keep for your schema requirement)
+        is_active: true,
+        metadata: {
+          type: chat.type,
+          title: chat.title,
+        },
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "user_id,platform",
+      },
+    );
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
-      message: "Telegram account connected successfully",
-      source: botToken ? "user_input" : "environment",
+      chat: chat.title,
     });
-  } catch (error: any) {
-    console.error("Unexpected error in Telegram connection:", error);
-    return NextResponse.json(
-      {
-        error: error.message || "Internal server error",
-      },
-      { status: 500 },
-    );
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
