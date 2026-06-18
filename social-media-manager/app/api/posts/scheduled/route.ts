@@ -2,6 +2,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
+// ─── GET: Fetch scheduled posts ──────────────────────────────────────────────
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -18,6 +20,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
 
+    // ── Fetch manual scheduled posts ──
     let query = supabase
       .from("posts")
       .select("*")
@@ -27,7 +30,6 @@ export async function GET(request: NextRequest) {
     if (date) {
       query = query.eq("scheduled_for", date);
     }
-
     if (startDate && endDate) {
       query = query
         .gte("scheduled_for", startDate)
@@ -37,41 +39,31 @@ export async function GET(request: NextRequest) {
     const { data: posts, error } = await query.order("scheduled_for", {
       ascending: true,
     });
-
     if (error) throw error;
 
-    let autoPostQuery = supabase
+    // ── Fetch auto-scheduled posts ──
+    let autoQuery = supabase
       .from("auto_post_queue")
       .select("*")
       .eq("user_id", user.id)
       .in("status", ["pending", "processing"]);
 
     if (date) {
-      autoPostQuery = autoPostQuery.eq("scheduled_for", date);
+      autoQuery = autoQuery.eq("scheduled_for", date);
     }
-
     if (startDate && endDate) {
-      autoPostQuery = autoPostQuery
+      autoQuery = autoQuery
         .gte("scheduled_for", startDate)
         .lte("scheduled_for", endDate);
     }
 
-    const { data: autoPosts, error: autoPostError } = await autoPostQuery.order(
+    const { data: autoPosts, error: autoError } = await autoQuery.order(
       "scheduled_for",
       { ascending: true },
     );
+    if (autoError) throw autoError;
 
-    if (autoPostError) throw autoPostError;
-
-    const normalizedAutoPosts = (autoPosts || []).map((post) => ({
-      id: post.id,
-      content: post.content,
-      platforms: post.platforms || [],
-      scheduled_for: post.scheduled_for,
-      status: post.status,
-      source: "auto",
-    }));
-
+    // ── Normalize responses ──
     const normalizedPosts = (posts || []).map((post) => ({
       ...post,
       platforms: Array.isArray(post.platforms)
@@ -82,19 +74,31 @@ export async function GET(request: NextRequest) {
       source: "manual",
     }));
 
-    return NextResponse.json({
-      success: true,
-      posts: [...normalizedPosts, ...normalizedAutoPosts].sort(
-        (a, b) =>
-          new Date(a.scheduled_for).getTime() -
-          new Date(b.scheduled_for).getTime(),
-      ),
-    });
+    const normalizedAutoPosts = (autoPosts || []).map((post) => ({
+      id: post.id,
+      content: post.content,
+      platforms: post.platforms || [],
+      scheduled_for: post.scheduled_for,
+      status: post.status,
+      source: "auto",
+      media_urls: post.image_url ? [post.image_url] : [],
+    }));
+
+    // ── Combine and sort by date ──
+    const allPosts = [...normalizedPosts, ...normalizedAutoPosts].sort(
+      (a, b) =>
+        new Date(a.scheduled_for).getTime() -
+        new Date(b.scheduled_for).getTime(),
+    );
+
+    return NextResponse.json({ success: true, posts: allPosts });
   } catch (error: any) {
     console.error("Error fetching scheduled posts:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+// ─── POST: Create a new scheduled post ──────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   try {
@@ -117,6 +121,35 @@ export async function POST(request: NextRequest) {
       tags,
     } = await request.json();
 
+    // Validate required fields
+    if (!content || !content.trim()) {
+      return NextResponse.json(
+        { error: "Content is required" },
+        { status: 400 },
+      );
+    }
+    if (!platforms || platforms.length === 0) {
+      return NextResponse.json(
+        { error: "At least one platform is required" },
+        { status: 400 },
+      );
+    }
+    if (!scheduled_for) {
+      return NextResponse.json(
+        { error: "Scheduled date is required" },
+        { status: 400 },
+      );
+    }
+
+    // Validate scheduled date is in the future
+    if (new Date(scheduled_for) < new Date()) {
+      return NextResponse.json(
+        { error: "Scheduled date must be in the future" },
+        { status: 400 },
+      );
+    }
+
+    // Create post record
     const { data: post, error } = await supabase
       .from("posts")
       .insert({
@@ -127,7 +160,7 @@ export async function POST(request: NextRequest) {
         status: "scheduled",
         scheduled_for,
         is_recurring: is_recurring || false,
-        recurring_pattern,
+        recurring_pattern: recurring_pattern || null,
         tags: tags || [],
       })
       .select()
@@ -152,6 +185,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// ─── DELETE: Cancel a scheduled post ────────────────────────────────────────
+
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -163,9 +198,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // `source` tells us which table owns this post:
-    //   "auto"   → cancel row in auto_post_queue only
-    //   "manual" → delete from posts + content_queue
     const { postId, source } = await request.json();
 
     if (!postId) {
@@ -176,6 +208,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (source === "auto") {
+      // Cancel auto-scheduled post
       const { error: queueError } = await supabase
         .from("auto_post_queue")
         .update({ status: "cancelled" })
@@ -184,7 +217,8 @@ export async function DELETE(request: NextRequest) {
 
       if (queueError) throw queueError;
     } else {
-      // Remove platform queue entries first (FK constraint)
+      // Delete manual scheduled post
+      // First, delete content queue entries (foreign key constraint)
       const { error: contentQueueError } = await supabase
         .from("content_queue")
         .delete()
@@ -192,6 +226,7 @@ export async function DELETE(request: NextRequest) {
 
       if (contentQueueError) throw contentQueueError;
 
+      // Then delete the post
       const { error } = await supabase
         .from("posts")
         .delete()
