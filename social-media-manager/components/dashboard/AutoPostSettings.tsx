@@ -32,6 +32,7 @@ import {
   Trash2,
   Bot,
   Loader2,
+  Plus,
 } from "lucide-react";
 import { FaFacebook, FaInstagram, FaTwitter } from "react-icons/fa";
 
@@ -84,6 +85,10 @@ export default function AutoPostSettings() {
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showManualSchedule, setShowManualSchedule] = useState(false);
+  const [manualContent, setManualContent] = useState("");
+  const [manualDate, setManualDate] = useState("");
+  const [manualPlatforms, setManualPlatforms] = useState<string[]>([]);
 
   useEffect(() => {
     fetchSettings();
@@ -140,6 +145,7 @@ export default function AutoPostSettings() {
 
     setSaving(true);
     try {
+      // ✅ FIX: Use the correct endpoint for auto-post settings
       const response = await fetch("/api/ai/auto-post/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -166,6 +172,67 @@ export default function AutoPostSettings() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const scheduleManualPost = async () => {
+    if (!manualContent || !manualContent.trim()) {
+      toast.error("Please enter post content");
+      return;
+    }
+
+    if (!manualDate) {
+      toast.error("Please select a date and time");
+      return;
+    }
+
+    if (manualPlatforms.length === 0) {
+      toast.error("Please select at least one platform");
+      return;
+    }
+
+    if (new Date(manualDate) < new Date()) {
+      toast.error("Scheduled date must be in the future");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/posts/scheduled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: manualContent,
+          platforms: manualPlatforms,
+          scheduled_for: manualDate,
+          media_urls: [],
+          is_recurring: false,
+          recurring_pattern: null,
+          tags: [],
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success("Post scheduled successfully!");
+        setManualContent("");
+        setManualDate("");
+        setManualPlatforms([]);
+        setShowManualSchedule(false);
+        fetchScheduledPosts();
+      } else {
+        throw new Error(data.error || "Failed to schedule post");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to schedule post");
+    }
+  };
+
+  const toggleManualPlatform = (platformId: string) => {
+    setManualPlatforms((prev) =>
+      prev.includes(platformId)
+        ? prev.filter((p) => p !== platformId)
+        : [...prev, platformId],
+    );
   };
 
   const togglePlatform = (platformId: string) => {
@@ -344,6 +411,81 @@ export default function AutoPostSettings() {
             )}
           </Button>
         </CardContent>
+      </Card>
+
+      {/* Manual Schedule Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Plus className="h-5 w-5" />
+              Manual Schedule
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowManualSchedule(!showManualSchedule)}
+            >
+              {showManualSchedule ? "Cancel" : "Schedule Post"}
+            </Button>
+          </CardTitle>
+          <CardDescription>Schedule a one-off post manually</CardDescription>
+        </CardHeader>
+        {showManualSchedule && (
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Content</Label>
+              <Input
+                placeholder="What do you want to post?"
+                value={manualContent}
+                onChange={(e) => setManualContent(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Schedule Date & Time</Label>
+              <Input
+                type="datetime-local"
+                value={manualDate}
+                onChange={(e) => setManualDate(e.target.value)}
+                min={new Date().toISOString().slice(0, 16)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Platforms</Label>
+              <div className="flex flex-wrap gap-2">
+                {availablePlatforms.map((platform) => {
+                  const Icon = platform.icon;
+                  const isSelected = manualPlatforms.includes(platform.id);
+
+                  return (
+                    <button
+                      key={platform.id}
+                      onClick={() => toggleManualPlatform(platform.id)}
+                      className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-all ${
+                        isSelected
+                          ? `${platform.color} text-white shadow-md`
+                          : "bg-muted hover:bg-muted/80 text-foreground"
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      <span>{platform.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Button
+              onClick={scheduleManualPost}
+              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+            >
+              <Calendar className="mr-2 h-4 w-4" />
+              Schedule Post
+            </Button>
+          </CardContent>
+        )}
       </Card>
 
       {/* Scheduled Posts List */}
