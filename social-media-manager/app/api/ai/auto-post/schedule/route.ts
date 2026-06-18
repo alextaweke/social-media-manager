@@ -112,8 +112,7 @@ export async function POST(request: NextRequest) {
       platforms,
       scheduled_for,
       media_urls,
-      is_recurring,
-      recurring_pattern,
+
       tags,
     } = await request.json();
 
@@ -126,8 +125,6 @@ export async function POST(request: NextRequest) {
         platforms,
         status: "scheduled",
         scheduled_for,
-        is_recurring: is_recurring || false,
-        recurring_pattern,
         tags: tags || [],
       })
       .select()
