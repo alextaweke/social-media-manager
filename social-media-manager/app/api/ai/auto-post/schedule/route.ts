@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get auto-post settings
     const { data: settings, error } = await supabase
       .from("ai_settings")
       .select("*")
@@ -30,7 +29,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Get pending auto-post queue
     const { data: queue, error: queueError } = await supabase
       .from("auto_post_queue")
       .select("*")
@@ -87,7 +85,6 @@ export async function POST(request: NextRequest) {
     let settingsError;
 
     if (existingSettings) {
-      // Update existing
       const { error } = await supabase
         .from("ai_settings")
         .update({
@@ -101,7 +98,6 @@ export async function POST(request: NextRequest) {
         .eq("user_id", user.id);
       settingsError = error;
     } else {
-      // Insert new
       const { error } = await supabase.from("ai_settings").insert({
         user_id: user.id,
         auto_post_enabled: enabled,
@@ -123,7 +119,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // If enabled, generate and schedule posts
     if (enabled) {
       // Clear old pending auto posts
       await supabase
@@ -164,9 +159,9 @@ async function generateAndSchedulePosts(
   topics: string[],
 ) {
   const supabase = await createClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  // ✅ FIX: Use the correct model name - gemini-1.5-pro instead of gemini-pro
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  // Calculate schedule dates
   const scheduleDates = calculateScheduleDates(schedule, time);
 
   let scheduledCount = 0;
@@ -174,7 +169,7 @@ async function generateAndSchedulePosts(
   for (const date of scheduleDates) {
     for (const topic of topics) {
       try {
-        // Generate content using AI
+        // Generate content using AI with the correct model
         const prompt = `Create a short, engaging social media post about "${topic}". 
         Make it interesting, include relevant emojis, and keep it under 280 characters.
         Return ONLY the post content, nothing else.`;
@@ -183,7 +178,6 @@ async function generateAndSchedulePosts(
         const response = await result.response;
         const content = response.text().trim();
 
-        // Add to queue
         const { error } = await supabase.from("auto_post_queue").insert({
           user_id: userId,
           content: content,
@@ -215,7 +209,6 @@ function calculateScheduleDates(schedule: string, time: string): Date[] {
 
   switch (schedule) {
     case "daily":
-      // Schedule for next 7 days
       for (let i = 1; i <= 7; i++) {
         const date = new Date();
         date.setDate(now.getDate() + i);
@@ -226,7 +219,6 @@ function calculateScheduleDates(schedule: string, time: string): Date[] {
       }
       break;
     case "weekly":
-      // Schedule for next 4 weeks on same day
       for (let i = 1; i <= 4; i++) {
         const date = new Date();
         date.setDate(now.getDate() + i * 7);
@@ -237,7 +229,6 @@ function calculateScheduleDates(schedule: string, time: string): Date[] {
       }
       break;
     case "custom":
-      // Schedule for next 3 days
       for (let i = 1; i <= 3; i++) {
         const date = new Date();
         date.setDate(now.getDate() + i);
@@ -248,7 +239,6 @@ function calculateScheduleDates(schedule: string, time: string): Date[] {
       }
       break;
     default:
-      // Default: schedule for tomorrow
       const date = new Date();
       date.setDate(now.getDate() + 1);
       date.setHours(hours, minutes, 0, 0);
