@@ -31,6 +31,7 @@ import {
   CheckCircle,
   Trash2,
   Bot,
+  Loader2,
 } from "lucide-react";
 import { FaFacebook, FaInstagram, FaTwitter } from "react-icons/fa";
 
@@ -40,6 +41,15 @@ interface ScheduledPost {
   platforms: string[];
   scheduled_for: string;
   status: string;
+  source?: string;
+}
+
+interface Settings {
+  auto_post_enabled: boolean;
+  auto_post_schedule: string;
+  auto_post_time: string;
+  auto_post_platforms: string[];
+  auto_post_topics: string[];
 }
 
 const availablePlatforms = [
@@ -85,14 +95,16 @@ export default function AutoPostSettings() {
       const response = await fetch("/api/ai/settings");
       const data = await response.json();
       if (data.success && data.settings) {
-        setEnabled(data.settings.auto_post_enabled || false);
-        setSchedule(data.settings.auto_post_schedule || "daily");
-        setPostTime(data.settings.auto_post_time || "09:00");
-        setSelectedPlatforms(data.settings.auto_post_platforms || []);
-        setSelectedTopics(data.settings.auto_post_topics || []);
+        const settings = data.settings as Settings;
+        setEnabled(settings.auto_post_enabled || false);
+        setSchedule(settings.auto_post_schedule || "daily");
+        setPostTime(settings.auto_post_time || "09:00");
+        setSelectedPlatforms(settings.auto_post_platforms || []);
+        setSelectedTopics(settings.auto_post_topics || []);
       }
     } catch (error) {
       console.error("Error fetching settings:", error);
+      toast.error("Failed to load settings");
     } finally {
       setLoading(false);
     }
@@ -147,7 +159,7 @@ export default function AutoPostSettings() {
         );
         fetchScheduledPosts();
       } else {
-        throw new Error(data.error);
+        throw new Error(data.error || "Failed to save settings");
       }
     } catch (error: any) {
       toast.error(error.message || "Failed to save settings");
@@ -170,12 +182,12 @@ export default function AutoPostSettings() {
     );
   };
 
-  const cancelScheduledPost = async (postId: string) => {
+  const cancelScheduledPost = async (postId: string, source?: string) => {
     try {
       const response = await fetch("/api/posts/scheduled", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId }),
+        body: JSON.stringify({ postId, source: source || "manual" }),
       });
       const data = await response.json();
 
@@ -183,15 +195,28 @@ export default function AutoPostSettings() {
         toast.success("Scheduled post cancelled");
         fetchScheduledPosts();
       } else {
-        throw new Error(data.error);
+        throw new Error(data.error || "Failed to cancel post");
       }
     } catch (error: any) {
       toast.error(error.message || "Failed to cancel post");
     }
   };
 
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleString();
+    } catch {
+      return dateString;
+    }
+  };
+
   if (loading) {
-    return <div className="text-center py-8">Loading...</div>;
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        <span className="ml-2 text-gray-500">Loading settings...</span>
+      </div>
+    );
   }
 
   return (
@@ -228,7 +253,7 @@ export default function AutoPostSettings() {
                   </Label>
                   <Select value={schedule} onValueChange={setSchedule}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select frequency" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="daily">Daily</SelectItem>
@@ -256,13 +281,14 @@ export default function AutoPostSettings() {
                 <div className="flex flex-wrap gap-3">
                   {availablePlatforms.map((platform) => {
                     const Icon = platform.icon;
+                    const isSelected = selectedPlatforms.includes(platform.id);
 
                     return (
                       <button
                         key={platform.id}
                         onClick={() => togglePlatform(platform.id)}
                         className={`flex items-center gap-2 rounded-lg px-4 py-2 transition-all ${
-                          selectedPlatforms.includes(platform.id)
+                          isSelected
                             ? `${platform.color} scale-105 text-white shadow-md`
                             : "bg-muted hover:bg-muted/80 text-foreground"
                         }`}
@@ -286,7 +312,7 @@ export default function AutoPostSettings() {
                       }
                       className={`cursor-pointer px-3 py-1 ${
                         selectedTopics.includes(topic)
-                          ? "bg-gradient-to-r from-blue-600 to-purple-600"
+                          ? "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                           : "hover:bg-muted"
                       }`}
                       onClick={() => toggleTopic(topic)}
@@ -306,9 +332,16 @@ export default function AutoPostSettings() {
           <Button
             onClick={saveSettings}
             disabled={saving}
-            className="w-full bg-gradient-to-r from-blue-600 to-purple-600"
+            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
           >
-            {saving ? "Saving..." : "Save Auto-Post Settings"}
+            {saving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              "Save Auto-Post Settings"
+            )}
           </Button>
         </CardContent>
       </Card>
@@ -348,7 +381,7 @@ export default function AutoPostSettings() {
                               className="gap-1"
                             >
                               {Icon && <Icon className="h-3.5 w-3.5" />}
-                              {p?.name}
+                              {p?.name || platform}
                             </Badge>
                           );
                         })}
@@ -359,22 +392,30 @@ export default function AutoPostSettings() {
                       <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          {new Date(post.scheduled_for).toLocaleString()}
+                          {formatDate(post.scheduled_for)}
                         </span>
                         <Badge
                           variant={
-                            post.status === "pending" ? "outline" : "default"
+                            post.status === "pending" ||
+                            post.status === "scheduled"
+                              ? "outline"
+                              : "default"
                           }
                         >
-                          {post.status}
+                          {post.status || "pending"}
                         </Badge>
+                        {post.source === "auto" && (
+                          <Badge variant="secondary" className="text-xs">
+                            🤖 AI Generated
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => cancelScheduledPost(post.id)}
-                      className="text-red-500 hover:text-red-700"
+                      onClick={() => cancelScheduledPost(post.id, post.source)}
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -414,12 +455,16 @@ export default function AutoPostSettings() {
               <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-green-800 dark:text-green-200">
-                  Auto-posting is active!
+                  Auto-posting is active! 🎉
                 </p>
                 <p className="text-xs text-green-600 dark:text-green-300 mt-1">
                   AI will generate and post content{" "}
-                  {schedule === "daily" ? "every day" : "weekly"} at {postTime}{" "}
-                  on {selectedPlatforms.length} platform(s) about{" "}
+                  {schedule === "daily"
+                    ? "every day"
+                    : schedule === "weekly"
+                      ? "weekly"
+                      : "on custom schedule"}{" "}
+                  at {postTime} on {selectedPlatforms.length} platform(s) about{" "}
                   {selectedTopics.length} topic(s).
                 </p>
               </div>
