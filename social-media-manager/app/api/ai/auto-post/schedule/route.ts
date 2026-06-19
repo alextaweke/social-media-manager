@@ -159,17 +159,14 @@ async function generateAndSchedulePosts(
   topics: string[],
 ) {
   const supabase = await createClient();
-  // ✅ FIX: Use the correct model name - gemini-1.5-pro instead of gemini-pro
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const scheduleDates = calculateScheduleDates(schedule, time);
-
   let scheduledCount = 0;
 
   for (const date of scheduleDates) {
     for (const topic of topics) {
       try {
-        // Generate content using AI with the correct model
         const prompt = `Create a short, engaging social media post about "${topic}". 
         Make it interesting, include relevant emojis, and keep it under 280 characters.
         Return ONLY the post content, nothing else.`;
@@ -209,31 +206,32 @@ function calculateScheduleDates(schedule: string, time: string): Date[] {
 
   switch (schedule) {
     case "daily":
-      for (let i = 1; i <= 7; i++) {
+      // ✅ FIX: Start from today (i=0) through 7 days
+      for (let i = 0; i <= 7; i++) {
         const date = new Date();
         date.setDate(now.getDate() + i);
         date.setHours(hours, minutes, 0, 0);
-        if (date > now) {
+        if (date >= now) {
           dates.push(date);
         }
       }
       break;
     case "weekly":
-      for (let i = 1; i <= 4; i++) {
+      for (let i = 0; i <= 4; i++) {
         const date = new Date();
         date.setDate(now.getDate() + i * 7);
         date.setHours(hours, minutes, 0, 0);
-        if (date > now) {
+        if (date >= now) {
           dates.push(date);
         }
       }
       break;
     case "custom":
-      for (let i = 1; i <= 3; i++) {
+      for (let i = 0; i <= 3; i++) {
         const date = new Date();
         date.setDate(now.getDate() + i);
         date.setHours(hours, minutes, 0, 0);
-        if (date > now) {
+        if (date >= now) {
           dates.push(date);
         }
       }
@@ -242,7 +240,7 @@ function calculateScheduleDates(schedule: string, time: string): Date[] {
       const date = new Date();
       date.setDate(now.getDate() + 1);
       date.setHours(hours, minutes, 0, 0);
-      if (date > now) {
+      if (date >= now) {
         dates.push(date);
       }
   }
